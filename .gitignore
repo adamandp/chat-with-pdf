@@ -1,0 +1,154 @@
+
+# ==========================================
+# Dependencies & Package Managers
+# ==========================================
+node_modules/
+.pnp.*
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+
+# ==========================================
+# Environment & Secrets
+# ==========================================
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ==========================================
+# Build & Generated Output
+# ==========================================
+dist/
+build/
+tmp/
+temp/
+out/
+out-tsc/
+*.tsbuildinfo
+
+# ==========================================
+# Prisma ORM
+# ==========================================
+
+# Generated Prisma Client
+/src/generated/prisma/
+/generated/prisma/
+
+# Local Prisma databases
+prisma/*.db
+prisma/*.db-journal
+
+# ==========================================
+# AI Agents & Generated Skills
+# ==========================================
+
+# Generated AI skills
+.agents/skills/
+.claude/skills/
+.cursor/skills/
+.devin/skills/
+.windsurf/skills/
+
+# Prisma 8 generated files
+prisma-8.md
+skills-lock.json
+
+# ==========================================
+# Testing & Coverage
+# ==========================================
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+*.lcov
+*.profraw
+
+# ==========================================
+# Logs & Runtime
+# ==========================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+bun-debug.log*
+*.pid
+*.pid.lock
+
+# ==========================================
+# Cache & Temporary Files
+# ==========================================
+.cache/
+.turbo/
+.eslintcache
+*.cache
+*.tmp
+*.temp
+
+# ==========================================
+# IDE & Editors
+# ==========================================
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+*.sublime-workspace
+*.sublime-project
+.project
+.classpath
+.settings/
+.c9/
+*.launch
+*.swp
+*.swo
+*~
+
+# ==========================================
+# Operating System
+# ==========================================
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+
+# ==========================================
+# Local Database & Storage
+# ==========================================
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.sqlite-journal
+
+# ==========================================
+# Local Uploads & Temporary Storage
+# ==========================================
+uploads/
+storage/
+temporary/
+
+# ==========================================
+# Local Docker Overrides
+# ==========================================
+docker-compose.override.yml
+compose.override.yml
+
+# ==========================================
+# Local Backups & Database Dumps
+# ==========================================
+*.bak
+*.backup
+*.dump
+*.sql.gz
