@@ -1,0 +1,156 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum FeedbackType {
+  LIKE
+  DISLIKE
+}
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  username     String?   @unique @db.VarChar(255)
+  passwordHash String?   @map("password_hash") @db.Text
+  role         String    @default("user") @db.VarChar(20)
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  chatSessions ChatSession[]
+  documents    Document[]
+
+  @@map("users")
+}
+
+model ChatSession {
+  id                  String    @id @default(uuid()) @db.Uuid
+  userId              String    @map("user_id") @db.Uuid
+  title               String?   @default("New Chat") @db.VarChar(255)
+  answerMode          String?   @default("document_only") @map("answer_mode") @db.VarChar(30)
+  activeLeafMessageId String?   @map("active_leaf_message_id") @db.Uuid
+  lastMessageAt       DateTime? @map("last_message_at") @db.Timestamptz(6)
+  createdAt           DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  user              User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  activeLeafMessage ChatHistory?      @relation("ActiveLeafMessage", fields: [activeLeafMessageId], references: [id], onDelete: SetNull)
+  messages          ChatHistory[]     @relation("SessionMessages")
+  sessionDocuments  SessionDocument[]
+
+  @@index([userId, lastMessageAt])
+  @@index([activeLeafMessageId])
+  @@map("chat_session")
+}
+
+model ChatHistory {
+  id              String    @id @default(uuid()) @db.Uuid
+  sessionId       String    @map("session_id") @db.Uuid
+  parentMessageId String?   @map("parent_message_id") @db.Uuid
+  versionGroupId  String    @map("version_group_id") @db.Uuid
+  role            String    @db.VarChar(20)
+  content         String    @default("") @db.Text
+  answerMode      String?   @map("answer_mode") @db.VarChar(30)
+  status          String    @db.VarChar(20)
+  createdAt       DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  session           ChatSession   @relation("SessionMessages", fields: [sessionId], references: [id], onDelete: Restrict)
+  parentMessage     ChatHistory?  @relation("MessageTree", fields: [parentMessageId], references: [id], onDelete: SetNull)
+  childMessages     ChatHistory[] @relation("MessageTree")
+  activeForSessions ChatSession[] @relation("ActiveLeafMessage")
+  feedback          ChatFeedback?
+  completions       Completion[]
+
+  @@index([sessionId, createdAt])
+  @@index([parentMessageId])
+  @@index([versionGroupId])
+  @@map("chat_history")
+}
+
+model ChatFeedback {
+  id            Int          @id @default(autoincrement())
+  chatHistoryId String       @unique @map("chat_history_id") @db.Uuid
+  type          FeedbackType
+  createdAt     DateTime?    @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt     DateTime?    @default(now()) @map("updated_at") @db.Timestamp(6)
+
+  chatHistory ChatHistory @relation(fields: [chatHistoryId], references: [id], onDelete: Restrict)
+
+  @@map("chat_feedback")
+}
+
+model Completion {
+  id                 String    @id @default(uuid()) @db.Uuid
+  chatHistoryId      String    @map("chat_history_id") @db.Uuid
+  model              String    @db.VarChar(100)
+  provider           String    @db.VarChar(50)
+  inputTokens        Int?      @default(0) @map("input_tokens")
+  outputTokens       Int?      @default(0) @map("output_tokens")
+  totalTokens        Int?      @default(0) @map("total_tokens")
+  inputCost          Decimal?  @default(0) @map("input_cost") @db.Decimal(12, 8)
+  outputCost         Decimal?  @default(0) @map("output_cost") @db.Decimal(12, 8)
+  totalCost          Decimal?  @default(0) @map("total_cost") @db.Decimal(12, 8)
+  latencyMs          Int?      @map("latency_ms")
+  timeToFirstTokenMs Int?      @map("time_to_first_token_ms")
+  status             String    @db.VarChar(20)
+  errorMessage       String?   @map("error_message") @db.Text
+  startedAt          DateTime? @default(now()) @map("started_at") @db.Timestamptz(6)
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt          DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  chatHistory ChatHistory @relation(fields: [chatHistoryId], references: [id], onDelete: Restrict)
+
+  @@index([chatHistoryId])
+  @@map("completions")
+}
+
+model Document {
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  filename     String    @db.VarChar(255)
+  filePath     String    @map("file_path") @db.Text
+  fileSize     BigInt    @map("file_size")
+  mimeType     String    @map("mime_type") @db.VarChar(100)
+  sha256Hash   String    @map("sha256_hash") @db.VarChar(64)
+  pageCount    Int?      @map("page_count")
+  chunkCount   Int?      @default(0) @map("chunk_count")
+  status       String    @db.VarChar(20)
+  errorMessage String?   @map("error_message") @db.Text
+  createdAt    DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  sessionDocuments SessionDocument[]
+
+  @@index([userId])
+  @@index([sha256Hash])
+  @@map("documents")
+}
+
+model SessionDocument {
+  sessionId  String    @map("session_id") @db.Uuid
+  documentId String    @map("document_id") @db.Uuid
+  createdAt  DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  session  ChatSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  document Document    @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@id([sessionId, documentId])
+  @@index([documentId])
+  @@map("session_documents")
+}
