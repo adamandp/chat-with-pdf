@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { createObserveModule } from '@nestjs/observe';
-import { AppController } from './app.controller.js';
-import { AppService } from './app.service.js';
-import { CommonModule } from './common/common.module.js';
-import { HealthModule } from './model/health/health.module.js';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { CommonModule } from './common/common.module';
+import { HealthModule } from './model/health/health.module';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 

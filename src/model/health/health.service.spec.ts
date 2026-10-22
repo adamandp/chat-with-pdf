@@ -1,7 +1,7 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { PrismaService } from '../../common/prisma/prisma.service.js';
-import { HealthService } from './health.service.js';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { HealthService } from './health.service';
 
 describe('HealthService', () => {
   let service: HealthService;

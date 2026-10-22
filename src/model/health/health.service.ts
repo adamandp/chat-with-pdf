@@ -1,7 +1,7 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
-import type { WebResponse } from '../../common/common.interface.js';
-import type { HealthResponse } from './health.interface.js';
-import { PrismaService } from '../../common/prisma/prisma.service.js';
+import type { WebResponse } from '../../common/common.interface';
+import type { HealthResponse } from './health.interface';
+import { PrismaService } from '../../common/prisma/prisma.service';
 
 @Injectable()
 export class HealthService {

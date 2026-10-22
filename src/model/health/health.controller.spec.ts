@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
-import { HealthController } from './health.controller.js';
-import { HealthService } from './health.service.js';
+import { HealthController } from './health.controller';
+import { HealthService } from './health.service';
 
 describe('HealthController', () => {
   it('returns the database health check', async () => {

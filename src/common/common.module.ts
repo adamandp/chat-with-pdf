@@ -1,7 +1,7 @@
 import { Global, Module } from '@nestjs/common';
-import { PrismaModule } from './prisma/prisma.module.js';
+import { PrismaModule } from './prisma/prisma.module';
 import { ConfigModule } from '@nestjs/config';
-import { AppLoggerModule } from './app-logger/app-logger.module.js';
+import { AppLoggerModule } from './app-logger/app-logger.module';
 
 @Global()
 @Module({
