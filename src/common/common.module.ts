@@ -1,3 +1,4 @@
+import { MilvusModule } from './milvus/milvus.module';
 import { Global, Module } from '@nestjs/common';
 import { PrismaModule } from './prisma/prisma.module';
 import { ConfigModule } from '@nestjs/config';
@@ -7,10 +8,11 @@ import { AppLoggerModule } from './app-logger/app-logger.module';
 @Module({
   imports: [
     PrismaModule,
+    MilvusModule,
     ConfigModule.forRoot({ isGlobal: true }),
     AppLoggerModule,
   ],
   providers: [AppLoggerModule],
-  exports: [PrismaModule],
+  exports: [PrismaModule, MilvusModule],
 })
 export class CommonModule {}

@@ -32,6 +32,7 @@
     "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "7",
     "@prisma/orm-postgres": "^8.0.0-rc.18",
+    "@zilliz/milvus2-sdk-node": "^3.0.6",
     "bcrypt": "^6.0.0",
     "dotenv": "^18.0.8",
     "nestjs-pino": "^5.3.1",

@@ -33,6 +33,23 @@ $ npm install
 
 ## Compile and run the project
 
+Copy the variables from `.env.example` into `.env` and configure PostgreSQL and
+Milvus before starting the app. `MILVUS_ADDRESS` is the gRPC endpoint (locally,
+`localhost:19530`). Set `MILVUS_TOKEN` to `username:password` or a Zilliz Cloud API
+key when authentication is enabled, and `MILVUS_SSL=true` for TLS endpoints.
+`MILVUS_DATABASE` defaults to `default`; the database must already exist.
+
+`MilvusService` is exported globally through `CommonModule` and can be injected
+into feature services, just like `PrismaService`:
+
+```ts
+constructor(private readonly milvus: MilvusService) {}
+```
+
+Import it from `src/common/milvus/milvus.service` using the relative path from
+your service. The app waits for the Milvus connection during startup and closes
+it when the Nest module is destroyed.
+
 ```bash
 # development
 $ npm run start
