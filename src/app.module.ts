@@ -3,6 +3,7 @@ import { createObserveModule } from '@nestjs/observe';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { CommonModule } from './common/common.module';
+import { ChatSessionModule } from './model/chat-session/chat-session.module';
 import { HealthModule } from './model/health/health.module';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -19,6 +20,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     // }),
     CommonModule,
     HealthModule,
+    ChatSessionModule,
   ],
   controllers: [AppController],
   providers: [AppService],
