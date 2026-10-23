@@ -53,6 +53,11 @@ import { Request, Response } from 'express';
                   ],
                 },
             autoLogging: true,
+            redact: [
+              'req.headers.authorization',
+              'req.headers.cookie',
+              'res.headers["set-cookie"]',
+            ],
             serializers: {
               req(req: Request) {
                 return {

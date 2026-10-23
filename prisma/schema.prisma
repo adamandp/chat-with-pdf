@@ -22,6 +22,8 @@ enum FeedbackType {
 model User {
   id           String    @id @default(uuid()) @db.Uuid
   username     String?   @unique @db.VarChar(255)
+  email        String?   @unique @db.VarChar(255)
+  name         String?   @db.VarChar(255)
   passwordHash String?   @map("password_hash") @db.Text
   role         String    @default("user") @db.VarChar(20)
   isActive     Boolean   @default(true) @map("is_active")
@@ -29,6 +31,7 @@ model User {
   updatedAt    DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
   deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
 
+  authSessions AuthSession[]
   chatSessions ChatSession[]
   documents    Document[]
 
@@ -154,4 +157,28 @@ model SessionDocument {
   @@id([sessionId, documentId])
   @@index([documentId])
   @@map("session_documents")
+}
+
+model AuthSession {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  lastUsedAt       DateTime @default(now()) @map("last_used_at") @db.Timestamptz(6)
+  refreshTokenHash String   @unique @map("refresh_token_hash") @db.VarChar(64)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt        DateTime @map("expires_at") @db.Timestamptz(6)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt, expiresAt])
+  @@map("auth_sessions")
+}
+
+// Expired counters may be periodically removed using reset_at.
+model AuthRateLimit {
+  key String @id @db.VarChar(64)
+  attempts Int
+  resetAt DateTime @map("reset_at") @db.Timestamptz(6)
+
+  @@index([resetAt], map: "auth_rate_limits_reset_at_idx")
+  @@map("auth_rate_limits")
 }
