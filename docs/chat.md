@@ -82,7 +82,7 @@ active leaf are committed together. No schema migration is required.
 Generation has a 110-second total deadline and a 30-second deadline per model operation
 (including retries, configurable via CHAT_MODEL_TIMEOUT_MS), three-search bound, at most six retrieved
 chunks per search, and the existing model retry limit. Requests accept 1–10 document
-IDs and questions up to 8,000 characters. `POST /chat` returns JSON; `POST /chat/stream` streams progress and the final result.
+IDs and questions up to 8,000 characters. `POST /chat` returns JSON; `POST /chat/stream` streams progress, answer text, and the final result.
 Global admission control and durable generation jobs are future work
 if measured traffic or response times require them. Successful persistence does not
 yet record token usage in the existing Completion table. New-turn submissions have
@@ -126,6 +126,9 @@ data: {"type":"progress","data":{"stage":"evaluating","message":"Memeriksa kecuk
 event: progress
 data: {"type":"progress","data":{"stage":"answering","message":"Menyusun jawaban dan sumber."}}
 
+event: token
+data: {"type":"token","data":{"text":"Jawaban [1]."}}
+
 event: progress
 data: {"type":"progress","data":{"stage":"saving","message":"Menyimpan percakapan."}}
 
@@ -135,8 +138,7 @@ data: {"type":"done","data":{"mode":"ultra","session_id":"...","message_id":"...
 
 The progress example above uses `ultra`; quick/pro omit the evaluating stage.
 Search/evaluation may repeat up to three times only in ultra. Empty retrieval skips evaluation.
-These are execution statuses, not model reasoning. Answer tokens are not streamed;
-the complete structured answer and citations arrive in `done` after persistence.
+Progress events are execution statuses, not model reasoning. Append each `token.data.text` in order to display the answer as it arrives. The `done` event contains the complete answer and citations after persistence; do not append its answer a second time. Tokens are provisional: if an `error` or unexpected EOF occurs before `done`, the turn has not been confirmed saved. When no relevant chunks are found, the answer may arrive only in `done`.
 
 Validation, authentication, ownership and document readiness failures before the
 stream begins retain normal HTTP error responses. After headers are sent, errors

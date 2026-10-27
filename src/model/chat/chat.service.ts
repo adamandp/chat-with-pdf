@@ -55,6 +55,7 @@ export class ChatService {
     body: CreateChatDto,
     onProgress?: (progress: ChatProgress) => void,
     signal?: AbortSignal,
+    onToken?: (text: string) => void,
   ) {
     const ids = [...new Set(body.document_ids)];
 
@@ -118,6 +119,7 @@ export class ChatService {
         sessionId,
         turnId: randomUUID(),
         mode,
+        onToken,
       },
       async () => {
         try {

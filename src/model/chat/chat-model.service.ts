@@ -239,6 +239,45 @@ export class ChatModelService implements ChatEngine {
       response_schema: z.toJSONSchema(Answer),
     };
 
+    const onToken = chatRequestContext.getStore()?.onToken;
+
+    if (onToken) {
+      const streamRequest: ChatModelRequestInput = {
+        system: request.system.replace(
+          ' source_ids must contain only actually cited sources.',
+          ' Return only the answer text, not JSON.',
+        ),
+        input: request.input,
+      };
+
+      return this.callModel(
+        'answer',
+        { chunks: chunks.length, streaming: true },
+        streamRequest,
+        async (callSignal) => {
+          const stream = await this.ai.chatModel(this.thinkingLevel()).stream(
+            [new SystemMessage(streamRequest.system), new HumanMessage(JSON.stringify(streamRequest.input))],
+            { signal: callSignal, callbacks: this.callbacks('answer') },
+          );
+          let answer = '';
+          for await (const part of stream) {
+            callSignal.throwIfAborted();
+            const text = typeof part.content === 'string'
+              ? part.content
+              : part.content.map((v) => v.type === 'text' ? v.text : '').join('');
+            if (text) {
+              answer += text;
+              onToken(text);
+            }
+          }
+          if (!answer.trim()) throw new Error('Model returned an empty answer');
+          const source_ids = [...answer.matchAll(/\[(\d+)\]/g)].map((match) => Number(match[1]));
+          return { answer, source_ids };
+        },
+        signal,
+      );
+    }
+
     return this.callModel(
       'answer',
       {
