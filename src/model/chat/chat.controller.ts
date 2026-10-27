@@ -64,6 +64,7 @@ export class ChatController {
           data: progress,
         }),
         abort.signal,
+        (text) => send({ type: 'token', data: { text } }),
       );
 
       send({

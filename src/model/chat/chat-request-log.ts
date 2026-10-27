@@ -8,6 +8,7 @@ interface ChatRequestContext {
   sessionId: string;
   turnId: string;
   mode: ChatMode;
+  onToken?: (text: string) => void;
 }
 
 export interface ChatModelRequestInput {

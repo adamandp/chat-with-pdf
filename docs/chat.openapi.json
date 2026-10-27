@@ -175,7 +175,7 @@
     },
     "/chat/stream": {
       "post": {
-        "summary": "Stream chat progress and the persisted final answer over SSE",
+        "summary": "Stream chat progress, answer text, and the persisted final answer over SSE",
         "security": [
           {
             "bearerAuth": []
@@ -228,7 +228,7 @@
         },
         "responses": {
           "200": {
-            "description": "Every SSE JSON payload is {type,data}, with type matching the event name. progress.data: {stage,message,attempt?}; done.data: the result inside POST /chat response.data; error.data: {status_code,message}. Stream closes after done/error. HTTP status remains 200 on post-header failures. error.data.status_code is 429 for provider rate limits/quota and 503 for other generation failures. Timeouts use error.data.status_code 504.",
+            "description": "Every SSE JSON payload is {type,data}, with type matching the event name. progress.data: {stage,message,attempt?}; token.data: {text} (provisional until done); done.data: the result inside POST /chat response.data; error.data: {status_code,message}. Stream closes after done/error. HTTP status remains 200 on post-header failures. error.data.status_code is 429 for provider rate limits/quota and 503 for other generation failures. Timeouts use error.data.status_code 504.",
             "content": {
               "text/event-stream": {
                 "schema": {

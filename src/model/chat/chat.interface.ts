@@ -56,6 +56,8 @@ export interface ChatResult {
 export type ChatStreamEvent
   = | { type: 'progress';
     data: ChatProgress; }
+    | { type: 'token';
+      data: { text: string }; }
     | { type: 'done';
       data: ChatResult; }
       | { type: 'error';
