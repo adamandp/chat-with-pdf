@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 @Injectable()
 export class PdfService {
@@ -14,6 +15,7 @@ export class PdfService {
     if (data.length < 5 || data.length > this.maxBytes) {
       throw new BadRequestException('PDF is empty or exceeds the size limit');
     }
+
     if (data
       .subarray(0, 5)
       .toString() !== '%PDF-') {
@@ -25,10 +27,10 @@ export class PdfService {
       .digest('hex');
   }
 
-  async extract(data: Buffer) {
-    // PDF.js is ESM-only; preserve the Nest application's existing CommonJS setup.
-    const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs');
-
+  async extract(
+    data: Buffer,
+    onPage?: (page: number, total: number) => Promise<void>,
+  ) {
     const task = getDocument({
       data: new Uint8Array(data),
       useSystemFonts: true,
@@ -56,10 +58,14 @@ export class PdfService {
           .join('');
 
         characters += content.length;
+
         if (characters > 30_000_000)
           throw new Error('Extracted text limit exceeded');
+
         pages.push(content);
         page.cleanup();
+
+        await onPage?.(n, pdf.numPages);
       }
 
       return pages;

@@ -18,9 +18,9 @@ const { SessionService } = require('../dist/model/session/session.service');
 
 const {
   DocumentWorkerService,
-} = require('../dist/model/documents/document-worker.service');
+} = require('../dist/model/documents/processing/document-worker.service');
 
-const { VectorService } = require('../dist/model/documents/vector.service');
+const { VectorService } = require('../dist/model/documents/processing/vector.service');
 
 function examplePdf(text = 'Annual revenue in 2024 was 100 million rupiah.') {
   const stream = `BT /F1 12 Tf 50 700 Td (${text}) Tj ET`;
@@ -290,11 +290,11 @@ describe.skipIf(!enabled)(
       await request(server)
         .post('/chat')
         .auth(token, { type: 'bearer' })
-        .send({ ...question, conversation_id: otherSession.id })
+        .send({ ...question, session_id: otherSession.id })
         .expect(404);
 
       const history = await request(server)
-        .get(`/chat-sessions/${answer.conversation_id}/chats`)
+        .get(`/chat-sessions/${answer.session_id}/chats`)
         .auth(token, { type: 'bearer' })
         .expect(200);
 
@@ -307,12 +307,12 @@ describe.skipIf(!enabled)(
           .send({
             ...question,
             question: 'What year was that?',
-            conversation_id: answer.conversation_id,
+            session_id: answer.session_id,
           })
           .expect(200);
         expect(
           await db.chatHistory.count({
-            where: { sessionId: answer.conversation_id },
+            where: { sessionId: answer.session_id },
           }),
         ).toBe(4);
       }

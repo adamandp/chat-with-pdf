@@ -48,9 +48,9 @@ with the existing bearer access token.
    Repeating the reservation returns the same document/job.
 4. Poll `GET /documents/<id>` until `ready` or `failed`; this refreshes the URL.
 5. `POST /chat` with `{"question":"…","document_ids":["<uuid>"]}` creates
-   a conversation. Supply the returned `conversation_id` for subsequent turns.
+   a conversation. Supply the returned `session_id` for subsequent turns.
 
-The chat response includes `answer`, `sources`, `conversation_id`, `message_id`,
+The chat response includes `answer`, `sources`, `session_id`, `message_id`,
 `search_attempts`, and `context_sufficient`. Citations identify document, filename,
 chunk and 1-based page. Existing chat-history endpoints return stored sources.
 Context sufficiency is an LLM judgment, not proof of answer correctness.

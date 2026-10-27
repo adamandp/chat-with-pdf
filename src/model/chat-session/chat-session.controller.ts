@@ -11,10 +11,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ChatSessionService } from './chat-session.service';
-import {
-  CurrentUser,
-  type AuthenticatedUser,
-} from '../../decorators/current-user.decorator';
+import { CurrentUser } from '../../decorators/current-user.decorator';
 import { PaginationDto } from '../../common/common.dto';
 import { UpdateChatSessionDto } from './dto/update-chat-session.dto';
 import type { WebResponse } from '../../common/common.interface';
@@ -23,6 +20,7 @@ import type {
   FindChatsResDto,
   UpdateChatSessionResDto,
 } from './chat-session.interface';
+import type { JwtPayload } from '../session/session.interface';
 
 @Controller('chat-sessions')
 export class ChatSessionController {
@@ -35,58 +33,62 @@ export class ChatSessionController {
 
   @Get()
   findAll(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentUser() user: JwtPayload,
     @Query() pagination: PaginationDto,
   ): Promise<WebResponse<FindAllChatSessionResDto>> {
-    return this.chatSessionService.findAll(user.id, pagination);
+    return this.chatSessionService.findAll(user.sub, pagination);
   }
 
   @Get('deleted')
   findDeleted(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentUser() user: JwtPayload,
     @Query() pagination: PaginationDto,
   ): Promise<WebResponse<FindAllChatSessionResDto>> {
-    return this.chatSessionService.findDeleted(user.id, pagination);
+    return this.chatSessionService.findDeleted(user.sub, pagination);
   }
 
   @Get(':id/chats')
   findChats(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<WebResponse<FindChatsResDto>> {
-    return this.chatSessionService.findChats(user.id, id);
+    return this.chatSessionService.findChats(user.sub, id);
   }
 
   @Patch(':id')
   update(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() body: UpdateChatSessionDto,
   ): Promise<WebResponse<UpdateChatSessionResDto>> {
-    return this.chatSessionService.update(user.id, id, body);
+    return this.chatSessionService.update(
+      user.sub,
+      id,
+      body,
+    );
   }
 
   @Delete(':id')
   remove(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<WebResponse<UpdateChatSessionResDto>> {
-    return this.chatSessionService.remove(user.id, id);
+    return this.chatSessionService.remove(user.sub, id);
   }
 
   @Delete(':id/permanent')
   removePermanently(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<WebResponse> {
-    return this.chatSessionService.removePermanently(user.id, id);
+    return this.chatSessionService.removePermanently(user.sub, id);
   }
 
   @Post(':id/restore')
   restore(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
   ): Promise<WebResponse<UpdateChatSessionResDto>> {
-    return this.chatSessionService.restore(user.id, id);
+    return this.chatSessionService.restore(user.sub, id);
   }
 }

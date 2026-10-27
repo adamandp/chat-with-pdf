@@ -1,6 +1,5 @@
 interface JwtPayload {
   sub: string;
-  sid?: string;
 }
 
 interface CreateTokenDTO {

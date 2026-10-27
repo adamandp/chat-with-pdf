@@ -1,0 +1,9 @@
+simulation: chat
+routing: path
+mocks:
+  - name: gemini-chat
+    routeKey: chat-model
+    path: postman/mocks/gemini-chat
+  - name: chat-embeddings
+    routeKey: gemini
+    path: postman/mocks/chat-embeddings

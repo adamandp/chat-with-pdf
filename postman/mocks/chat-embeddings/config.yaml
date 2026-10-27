@@ -1,0 +1,9 @@
+version: 1
+name: chat-embeddings
+slug: chat-embeddings
+protocol: http
+interceptRequests: true
+scenarios:
+  - name: default
+    default: true
+    path: ./default.js

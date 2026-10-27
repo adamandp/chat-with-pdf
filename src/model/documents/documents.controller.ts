@@ -3,39 +3,55 @@ import {
   Controller,
   Get,
   HttpCode,
+  Sse,
   Param,
   ParseUUIDPipe,
   Post,
 } from '@nestjs/common';
-import {
-  CurrentUser,
-  type AuthenticatedUser,
-} from '../../decorators/current-user.decorator';
+import type { MessageEvent } from '@nestjs/common';
+import type { Observable } from 'rxjs';
+import type { DocumentProgress } from './documents.interface';
+import { CurrentUser } from '../../decorators/current-user.decorator';
 import { DocumentsService } from './documents.service';
-import { PresignDto } from './dto/presign.dto';
-import { UploadDocumentDto } from './dto/upload-document.dto';
+import type { JwtPayload } from '../session/session.interface';
+import { WebResponse } from '../../common/common.interface';
+import { DocumentResDTO, PresignUrlResDTO } from './documents.interface';
+import { CreatePresignUrlDTO } from './dto/presign.dto';
 
-@Controller()
+@Controller('documents')
 export class DocumentsController {
   constructor(private readonly documents: DocumentsService) {}
+
   @Post('presigned-url')
-  @HttpCode(200)
-  presign(@CurrentUser() user: AuthenticatedUser, @Body() body: PresignDto) {
-    return this.documents.presign(user.id, body.filename);
+  presign(
+    @CurrentUser() user: JwtPayload,
+    @Body() body: CreatePresignUrlDTO,
+  ): Promise<WebResponse<PresignUrlResDTO>> {
+    return this.documents.createPresignUrl(user.sub, body);
   }
-  @Post('documents/upload')
+
+  @Post(':id/process')
   @HttpCode(202)
-  upload(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() body: UploadDocumentDto,
-  ) {
-    return this.documents.upload(user.id, body.upload_id);
-  }
-  @Get('documents/:id')
-  findOne(
-    @CurrentUser() user: AuthenticatedUser,
+  process(
+    @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
-  ) {
-    return this.documents.findOne(user.id, id);
+  ): Promise<WebResponse<DocumentProgress>> {
+    return this.documents.process(user.sub, id);
+  }
+
+  @Sse(':id/progress')
+  progress(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<Observable<MessageEvent>> {
+    return this.documents.progress(user.sub, id);
+  }
+
+  @Get(':id')
+  findOne(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<WebResponse<DocumentResDTO>> {
+    return this.documents.findOne(user.sub, id);
   }
 }

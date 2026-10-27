@@ -3,7 +3,7 @@ import type { INestApplication } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import request from 'supertest';
 import cookieParser from 'cookie-parser';
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import 'dotenv/config';
 import { createRequire } from 'node:module';
 
@@ -11,7 +11,7 @@ const require = createRequire(`${process.cwd()}/test/loader.cjs`);
 
 const { AppModule } = require('../dist/app.module');
 
-const { DocumentWorkerService } = require('../dist/model/documents/document-worker.service');
+const { DocumentWorkerService } = require('../dist/model/documents/processing/document-worker.service');
 
 const { MilvusService } = require('../dist/common/milvus/milvus.service');
 
@@ -20,10 +20,6 @@ const { PrismaService } = require('../dist/common/prisma/prisma.service');
 const { StorageService } = require('../dist/common/storage/storage.service');
 
 const { SessionService } = require('../dist/model/session/session.service');
-
-const {
-  LoginRateLimitGuard,
-} = require('../dist/common/guards/login-rate-limit.guard');
 
 // Uses the configured development database; removes only records created here.
 describe('auth with PostgreSQL (e2e)', () => {
@@ -51,10 +47,6 @@ describe('auth with PostgreSQL (e2e)', () => {
 
     app = module.createNestApplication();
     app.use(cookieParser());
-    app.use((req: object, _res: object, next: () => void) => {
-      Object.defineProperty(req, 'ip', { value: username });
-      next();
-    });
     await app.init();
     db = app.get(PrismaService);
     sessions = app.get(SessionService);
@@ -63,14 +55,6 @@ describe('auth with PostgreSQL (e2e)', () => {
   afterAll(async () => {
     if (userId) await db.user.delete({ where: { id: userId } });
 
-    const keys = [
-      `username:${username}`,
-      `ip:${username}`,
-    ].map((value) =>
-      createHash('sha256').update(value).digest('hex'),
-    );
-
-    await db.$executeRaw`DELETE FROM auth_rate_limits WHERE key IN (${keys[0]}, ${keys[1]})`;
     await app?.close();
   });
 
@@ -184,26 +168,4 @@ describe('auth with PostgreSQL (e2e)', () => {
     ).toBe(5);
   });
 
-  it('enforces shared rate counters atomically against PostgreSQL', async () => {
-    const guard = new LoginRateLimitGuard(db);
-
-    const context = {
-      switchToHttp: () => ({
-        getRequest: () => ({ ip: username, socket: {}, body: { username } }),
-        getResponse: () => ({ setHeader: () => {} }),
-      }),
-    };
-
-    // Six real logins above already consumed six account attempts.
-    const results = await Promise.allSettled(
-      Array.from({ length: 10 }, () => guard.canActivate(context)),
-    );
-
-    expect(
-      results.filter((result) => result.status === 'fulfilled'),
-    ).toHaveLength(4);
-    expect(
-      results.filter((result) => result.status === 'rejected'),
-    ).toHaveLength(6);
-  });
 });

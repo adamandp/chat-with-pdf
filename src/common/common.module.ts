@@ -12,6 +12,7 @@ import { ZodValidationPipe } from 'nestjs-zod';
 import { MilvusModule } from './milvus/milvus.module';
 import { StorageModule } from './storage/storage.module';
 import { AiModule } from './ai/ai.module';
+import { QueueModule } from './queue/queue.module';
 
 @Global()
 @Module({
@@ -27,6 +28,7 @@ import { AiModule } from './ai/ai.module';
     MilvusModule,
     StorageModule,
     AiModule,
+    QueueModule,
     AppLoggerModule,
   ],
   providers: [
@@ -46,6 +48,7 @@ import { AiModule } from './ai/ai.module';
     MilvusModule,
     StorageModule,
     AiModule,
+    QueueModule,
   ],
 })
 export class CommonModule {}

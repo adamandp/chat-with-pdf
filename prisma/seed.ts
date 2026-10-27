@@ -32,20 +32,29 @@ async function main(): Promise<void> {
     await prisma.$transaction(
       async (tx) => {
         await tx.chatFeedback.deleteMany();
+
         await tx.completion.deleteMany();
+
         await tx.sessionDocument.deleteMany();
+
         await tx.chatHistory.deleteMany();
+
         await tx.chatSession.deleteMany();
-        await tx.documentJob.deleteMany();
-        await tx.documentUpload.deleteMany();
+
         await tx.document.deleteMany();
+
         await tx.user.deleteMany();
 
         console.log('🧹 Database cleared!');
+
         await seedUsers(tx);
+
         await seedChatSessions(tx);
+
         await seedChatHistory(tx);
+
         await seedChatFeedback(tx);
+
         await seedCompletions(tx);
       },
       {
@@ -60,7 +69,8 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
-  console.error('💥 Database seeding failed:', error);
-  process.exitCode = 1;
-});
+main()
+  .catch((error: unknown) => {
+    console.error('💥 Database seeding failed:', error);
+    process.exitCode = 1;
+  });

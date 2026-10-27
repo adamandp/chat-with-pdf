@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataType, ConsistencyLevelEnum } from '@zilliz/milvus2-sdk-node';
-import { MilvusService } from '../../common/milvus/milvus.service';
-import { AiService } from '../../common/ai/ai.service';
-import type { Chunk } from './documents.interface';
+import { MilvusService } from '../../../common/milvus/milvus.service';
+import { AiService } from '../../../common/ai/ai.service';
+import type { Chunk } from '../documents.interface';
 
 @Injectable()
 export class VectorService {
@@ -35,6 +35,7 @@ export class VectorService {
     });
 
     this.check(exists.status);
+
     if (!exists.value) {
       const fields = [
         {
@@ -90,6 +91,7 @@ export class VectorService {
         }),
       );
     }
+
     this.check(
       await this.milvus.loadCollectionSync({
         collection_name: this.collection,
@@ -97,13 +99,28 @@ export class VectorService {
     );
   }
 
-  async upsert(chunks: Chunk[]) {
+  async embed(chunks: Chunk[]): Promise<number[][]> {
     const vectors = await this.ai
       .embeddings()
       .embedDocuments(chunks.map((c) => c.text));
 
     if (vectors.length !== chunks.length)
       throw new Error('Embedding result count mismatch');
+
+    this.validateVectors(vectors);
+
+    return vectors;
+  }
+
+  async upsert(chunks: Chunk[]) {
+    return this.upsertEmbedded(chunks, await this.embed(chunks));
+  }
+
+  async upsertEmbedded(chunks: Chunk[], vectors: number[][]) {
+    if (vectors.length !== chunks.length) throw new Error(
+      'Embedding result count mismatch',
+    );
+
     this.validateVectors(vectors);
 
     const result = await this.milvus.upsert({
@@ -112,6 +129,17 @@ export class VectorService {
         ...chunk,
         vector: vectors[i],
       })),
+    });
+
+    this.check(result.status);
+  }
+
+  async deleteDocument(userId: string, documentId: string) {
+    const result = await this.milvus.deleteEntities({
+      collection_name: this.collection,
+      expr: `user_id == ${JSON.stringify(userId)} and document_id == ${JSON.stringify(
+        documentId,
+      )}`,
     });
 
     this.check(result.status);
@@ -129,6 +157,7 @@ export class VectorService {
     userId: string,
     documentIds: string[],
     query: string,
+    limit = 6,
   ): Promise<Chunk[]> {
     const vector = await this.ai
       .embeddings()
@@ -140,10 +169,13 @@ export class VectorService {
       collection_name: this.collection,
       data: vector,
       anns_field: 'vector',
-      limit: 6,
+      limit,
       metric_type: 'COSINE',
-      filter: `user_id == ${JSON.stringify(userId)} and document_id in ${JSON.stringify(documentIds)}`,
+      filter: `user_id == ${JSON.stringify(userId)} and document_id in ${JSON.stringify(
+        documentIds,
+      )}`,
       output_fields: [
+        'id',
         'user_id',
         'document_id',
         'filename',
@@ -154,6 +186,14 @@ export class VectorService {
     });
 
     this.check(result.status);
+
+    if (
+      result.results.some(
+        (hit) => typeof hit.id !== 'string'
+          || !hit.id.trim(),
+      )
+    )
+      throw new Error('Milvus search result is missing a chunk ID');
 
     return result.results.map((hit) => ({
       id: String(hit.id),

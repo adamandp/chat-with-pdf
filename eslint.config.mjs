@@ -1,5 +1,10 @@
 import stylistic from '@stylistic/eslint-plugin';
 import tseslint from 'typescript-eslint';
+import awaitSpacing from './tooling/eslint/await-spacing.mjs';
+import callArguments from './tooling/eslint/call-arguments.mjs';
+import functionParameters from './tooling/eslint/function-parameters.mjs';
+import ifCondition from './tooling/eslint/if-condition.mjs';
+import rawSql from './tooling/eslint/raw-sql.mjs';
 import unusedImports from 'eslint-plugin-unused-imports';
 import noPaddedContainers from './tooling/eslint/no-padded-containers.mjs';
 import chainStart from './tooling/eslint/chain-start.mjs';
@@ -17,8 +22,13 @@ export default [
   {
     files: ['**/*.{ts,tsx,js,jsx,mjs,cjs}'],
     languageOptions: { parser: tseslint.parser },
-    plugins: { '@stylistic': stylistic, '@typescript-eslint': tseslint.plugin, 'unused-imports': unusedImports, local: { rules: { 'no-padded-containers': noPaddedContainers, 'chain-start': chainStart, 'import-lines': importLines } } },
+    plugins: { '@stylistic': stylistic, '@typescript-eslint': tseslint.plugin, 'unused-imports': unusedImports, local: { rules: { 'await-spacing': awaitSpacing, 'call-arguments': callArguments, 'function-parameters': functionParameters, 'if-condition': ifCondition, 'raw-sql': rawSql, 'no-padded-containers': noPaddedContainers, 'chain-start': chainStart, 'import-lines': importLines } } },
     rules: {
+      'local/await-spacing': 'error',
+      'local/call-arguments': 'error',
+      'local/function-parameters': 'error',
+      'local/if-condition': 'error',
+      'local/raw-sql': 'error',
       'unused-imports/no-unused-imports': 'error',
       'local/no-padded-containers': 'error',
       'local/chain-start': 'error',
@@ -76,6 +86,8 @@ export default [
           next: '*',
         },
         { blankLine: 'always', prev: '*', next: 'return' },
+        { blankLine: 'always', prev: '*', next: 'if' },
+        { blankLine: 'always', prev: 'if', next: '*' },
       ],
       '@stylistic/lines-between-class-members': [
         'error',

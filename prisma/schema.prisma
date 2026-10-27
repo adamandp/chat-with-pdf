@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider            = "prisma-client"
   output              = "../src/generated/prisma"
@@ -15,8 +10,22 @@ datasource db {
 }
 
 enum FeedbackType {
-  LIKE
-  DISLIKE
+  LIKE    @map("like")
+  DISLIKE @map("dislike")
+
+  @@map("feedback_type")
+}
+
+enum DocumentStatus {
+  PENDING_UPLOAD @map("pending_upload")
+  QUEUED         @map("queued")
+  PROCESSING     @map("processing")
+  READY          @map("ready")
+  FAILED         @map("failed")
+  DELETING       @map("deleting")
+  DELETED        @map("deleted")
+
+  @@map("document_status")
 }
 
 model User {
@@ -31,12 +40,26 @@ model User {
   updatedAt    DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
   deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  authSessions    AuthSession[]
-  chatSessions    ChatSession[]
-  documents       Document[]
-  documentUploads DocumentUpload[]
+  authSessions AuthSession[]
+  chatSessions ChatSession[]
+  documents    Document[]
 
   @@map("users")
+}
+
+model AuthSession {
+  id               String    @id @default(uuid()) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  refreshTokenHash String    @unique @map("refresh_token_hash") @db.VarChar(64)
+  lastUsedAt       DateTime  @default(now()) @map("last_used_at") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt, expiresAt])
+  @@map("auth_sessions")
 }
 
 model ChatSession {
@@ -61,13 +84,13 @@ model ChatSession {
 }
 
 model ChatHistory {
-  sources         Json      @default("[]")
   id              String    @id @default(uuid()) @db.Uuid
   sessionId       String    @map("session_id") @db.Uuid
   parentMessageId String?   @map("parent_message_id") @db.Uuid
   versionGroupId  String    @map("version_group_id") @db.Uuid
   role            String    @db.VarChar(20)
   content         String    @default("") @db.Text
+  sources         Json      @default("[]")
   answerMode      String?   @map("answer_mode") @db.VarChar(30)
   status          String    @db.VarChar(20)
   createdAt       DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -125,22 +148,20 @@ model Completion {
 }
 
 model Document {
-  upload       DocumentUpload?
-  job          DocumentJob?
-  id           String          @id @default(uuid()) @db.Uuid
-  userId       String          @map("user_id") @db.Uuid
-  filename     String          @db.VarChar(255)
-  filePath     String          @map("file_path") @db.Text
-  fileSize     BigInt          @map("file_size")
-  mimeType     String          @map("mime_type") @db.VarChar(100)
-  sha256Hash   String          @map("sha256_hash") @db.VarChar(64)
-  pageCount    Int?            @map("page_count")
-  chunkCount   Int?            @default(0) @map("chunk_count")
-  status       String          @db.VarChar(20)
-  errorMessage String?         @map("error_message") @db.Text
-  createdAt    DateTime?       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime?       @default(now()) @map("updated_at") @db.Timestamptz(6)
-  deletedAt    DateTime?       @map("deleted_at") @db.Timestamptz(6)
+  id           String         @id @default(uuid()) @db.Uuid
+  userId       String         @map("user_id") @db.Uuid
+  fileName     String?        @map("filename") @db.VarChar(255)
+  // filePath     String?        @map("file_path") @db.Text
+  fileSize     BigInt?        @map("file_size")
+  mimeType     String?        @map("mime_type") @db.VarChar(100)
+  sha256Hash   String?        @map("sha256_hash") @db.VarChar(64)
+  pageCount    Int?           @map("page_count")
+  chunkCount   Int?           @default(0) @map("chunk_count")
+  status       DocumentStatus @default(PENDING_UPLOAD)
+  errorMessage String?        @map("error_message") @db.Text
+  createdAt    DateTime?      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime?      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt    DateTime?      @map("deleted_at") @db.Timestamptz(6)
 
   user             User              @relation(fields: [userId], references: [id], onDelete: Restrict)
   sessionDocuments SessionDocument[]
@@ -161,58 +182,4 @@ model SessionDocument {
   @@id([sessionId, documentId])
   @@index([documentId])
   @@map("session_documents")
-}
-
-model DocumentUpload {
-  id         String    @id @db.Uuid
-  userId     String    @map("user_id") @db.Uuid
-  objectKey  String    @unique @map("object_key") @db.Text
-  filename   String    @db.VarChar(255)
-  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
-  documentId String?   @unique @map("document_id") @db.Uuid
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  user       User      @relation(fields: [userId], references: [id], onDelete: Restrict)
-  document   Document? @relation(fields: [documentId], references: [id], onDelete: Restrict)
-
-  @@map("document_uploads")
-}
-
-model DocumentJob {
-  id           String    @id @db.Uuid
-  documentId   String    @unique @map("document_id") @db.Uuid
-  status       String    @default("queued") @db.VarChar(20)
-  attempts     Int       @default(0)
-  availableAt  DateTime  @default(now()) @map("available_at") @db.Timestamptz(6)
-  lockedAt     DateTime? @map("locked_at") @db.Timestamptz(6)
-  leaseId      String?   @map("lease_id") @db.Uuid
-  errorMessage String?   @map("error_message") @db.Text
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  document     Document  @relation(fields: [documentId], references: [id], onDelete: Restrict)
-
-  @@index([status, availableAt], map: "document_jobs_claim_idx")
-  @@map("document_jobs")
-}
-
-model AuthSession {
-  id               String    @id @default(uuid()) @db.Uuid
-  userId           String    @map("user_id") @db.Uuid
-  lastUsedAt       DateTime  @default(now()) @map("last_used_at") @db.Timestamptz(6)
-  refreshTokenHash String    @unique @map("refresh_token_hash") @db.VarChar(64)
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  expiresAt        DateTime  @map("expires_at") @db.Timestamptz(6)
-  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
-  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, revokedAt, expiresAt])
-  @@map("auth_sessions")
-}
-
-// Expired counters may be periodically removed using reset_at.
-model AuthRateLimit {
-  key      String   @id @db.VarChar(64)
-  attempts Int
-  resetAt  DateTime @map("reset_at") @db.Timestamptz(6)
-
-  @@index([resetAt], map: "auth_rate_limits_reset_at_idx")
-  @@map("auth_rate_limits")
 }

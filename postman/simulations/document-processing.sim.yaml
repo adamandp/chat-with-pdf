@@ -1,0 +1,9 @@
+simulation: document-processing
+routing: path
+mocks:
+  - name: document-storage
+    routeKey: documents
+    path: postman/mocks/document-storage
+  - name: gemini-embeddings
+    routeKey: gemini
+    path: postman/mocks/gemini-embeddings

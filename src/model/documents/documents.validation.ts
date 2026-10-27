@@ -1,19 +1,54 @@
 import { z } from 'zod';
-export const PresignSchema = z
-  .object({
-    filename: z
-      .string()
-      .min(5)
-      .max(255)
-      .regex(
-        /^[^/\\]+\.pdf$/i,
-        'A PDF filename without path components is required',
-      )
-      .refine(
-        (value) =>
-          [...value].every((character) => character.charCodeAt(0) >= 32),
-        'Control characters are not allowed',
-      ),
-  })
-  .strict();
-export const UploadSchema = z.object({ upload_id: z.uuid() }).strict();
+import { DocumentStatus } from '../../generated/prisma/enums';
+
+export const documentSchema = z.object({
+  id: z.uuid(),
+  userId: z.uuid(),
+  fileName: z
+    .string()
+    .min(1)
+    .max(255)
+    .nullable(),
+  fileSize: z
+    .number()
+    .int()
+    .positive()
+    .nullable(),
+  mimeType: z
+    .string()
+    .max(100)
+    .nullable(),
+  sha256Hash: z
+    .string()
+    .regex(/^[a-fA-F0-9]{64}$/)
+    .nullable(),
+  pageCount: z
+    .number()
+    .int()
+    .positive()
+    .nullable(),
+  chunkCount: z
+    .number()
+    .int()
+    .nonnegative()
+    .nullable(),
+  status: z.enum(DocumentStatus),
+  errorMessage: z
+    .string()
+    .nullable(),
+  createdAt: z
+    .date()
+    .nullable(),
+  updatedAt: z
+    .date()
+    .nullable(),
+  deletedAt: z
+    .date()
+    .nullable(),
+});
+
+export type DocumentDto = z.infer<typeof documentSchema>;
+
+export const presignUrlSchema = z.object({
+  fileName: z.string().trim().min(1).max(255),
+});

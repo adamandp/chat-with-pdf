@@ -6,7 +6,7 @@ import 'dotenv/config';
 import { createRequire } from 'node:module';
 const require = createRequire(`${process.cwd()}/test/loader.cjs`);
 const { AppModule } = require('../dist/app.module');
-const { DocumentWorkerService } = require('../dist/model/documents/document-worker.service');
+const { DocumentWorkerService } = require('../dist/model/documents/processing/document-worker.service');
 const { StorageService } = require('../dist/common/storage/storage.service');
 const { MilvusService } = require('../dist/common/milvus/milvus.service');
 

@@ -15,11 +15,14 @@ export class HealthService {
     private readonly storage: StorageService,
   ) {}
 
+  // check minio health
   async checkMinio(): Promise<WebResponse<HealthResponse>> {
     try {
+      // check buckets
       if (!(await this.storage.bucketExists(this.storage.bucket)))
         throw new Error('Bucket not found');
 
+      // return healthy
       return {
         message: 'MinIO connection is healthy',
         data: {
@@ -28,6 +31,7 @@ export class HealthService {
         },
       };
     } catch {
+      // return unhealthy
       throw new ServiceUnavailableException({
         errors: 'MinIO connection failed',
         data: {
@@ -38,14 +42,20 @@ export class HealthService {
     }
   }
 
+  // check ai health
   async checkAi(): Promise<WebResponse<HealthResponse>> {
     try {
+      // check ai
       await this.ai
         .chatModel()
-        .invoke('Reply with only OK.', {
-          signal: AbortSignal.timeout(10_000),
-        });
+        .invoke(
+          'Reply with only OK.',
+          {
+            signal: AbortSignal.timeout(10_000),
+          },
+        );
 
+      // return healthy
       return {
         message: 'AI connection is healthy',
         data: {
@@ -54,6 +64,7 @@ export class HealthService {
         },
       };
     } catch {
+      // return unhealthy
       throw new ServiceUnavailableException({
         errors: 'AI connection failed',
         data: {
@@ -64,10 +75,16 @@ export class HealthService {
     }
   }
 
+  // check postgres
   async checkPostgres(): Promise<WebResponse<HealthResponse>> {
     try {
-      await this.prisma.$queryRaw`SELECT 1`;
+      // check query to postgres
+      await this.prisma.$queryRaw`
+        SELECT
+          1
+      `;
 
+      // return healthy
       return {
         message: 'Postgres connection is healthy',
         data: {
@@ -76,6 +93,7 @@ export class HealthService {
         },
       };
     } catch {
+      // return unhealthy
       throw new ServiceUnavailableException({
         errors: 'Postgres connection failed',
         data: {
@@ -88,10 +106,12 @@ export class HealthService {
 
   async checkMilvus(): Promise<WebResponse<HealthResponse>> {
     try {
+      // check milvus
       const result = await this.milvus.checkHealth();
 
       if (!result.isHealthy) throw new Error('Milvus is unhealthy');
 
+      // return healthy
       return {
         message: 'Milvus connection is healthy',
         data: {
@@ -100,6 +120,7 @@ export class HealthService {
         },
       };
     } catch {
+      // return unhealthy
       throw new ServiceUnavailableException({
         errors: 'Milvus connection failed',
         data: {

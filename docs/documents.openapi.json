@@ -1,0 +1,272 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Document processing",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "DocumentProgress": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "progress",
+          "status"
+        ],
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING_UPLOAD",
+              "QUEUED",
+              "PROCESSING",
+              "READY",
+              "FAILED",
+              "DELETING",
+              "DELETED"
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/documents/presigned-url": {
+      "post": {
+        "operationId": "createDocumentUpload",
+        "summary": "Reserve a document and create a 15-minute MinIO upload URL",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "fileName"
+                ],
+                "properties": {
+                  "fileName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  }
+                }
+              },
+              "example": {
+                "fileName": "example.pdf"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Upload reservation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "document_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "upload_url": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "expires_in": {
+                          "type": "integer",
+                          "example": 900
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request failed"
+          },
+          "401": {
+            "description": "Request failed"
+          }
+        }
+      }
+    },
+    "/documents/{id}/process": {
+      "post": {
+        "operationId": "processDocument",
+        "summary": "Queue an uploaded PDF; no request body",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Queued or already processing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DocumentProgress"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request failed"
+          },
+          "401": {
+            "description": "Request failed"
+          },
+          "404": {
+            "description": "Request failed"
+          },
+          "409": {
+            "description": "Request failed"
+          },
+          "503": {
+            "description": "Request failed"
+          }
+        }
+      }
+    },
+    "/documents/{id}/progress": {
+      "get": {
+        "operationId": "documentProgress",
+        "summary": "SSE progress stream; closes on READY or FAILED",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE data contains DocumentProgress JSON; heartbeat events contain an empty object",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "data: {\"progress\":100,\"status\":\"READY\",\"document_id\":\"00000000-0000-4000-8000-000000000001\"}\n\n"
+              }
+            }
+          },
+          "400": {
+            "description": "Request failed"
+          },
+          "401": {
+            "description": "Request failed"
+          },
+          "404": {
+            "description": "Request failed"
+          }
+        }
+      }
+    },
+    "/documents/{id}": {
+      "get": {
+        "operationId": "getDocument",
+        "summary": "Get owned document metadata and signed download URL",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metadata; fileSize is a decimal string or null",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "fileSize": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "download_url": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      },
+                      "additionalProperties": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request failed"
+          },
+          "401": {
+            "description": "Request failed"
+          },
+          "404": {
+            "description": "Request failed"
+          }
+        }
+      }
+    }
+  }
+}

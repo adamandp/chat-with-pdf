@@ -4,6 +4,7 @@ import { dummyConversations } from './dummy/chat-history';
 import type { Prisma } from '../../src/generated/prisma/client';
 
 const MIN_CONVERSATIONS = 6;
+
 const MAX_CONVERSATIONS = 10;
 
 function randomInt(min: number, max: number): number {
@@ -46,11 +47,15 @@ export async function seedChatHistory(
       .slice(0, conversationCount);
 
     let parentMessageId: string | null = null;
+
     let lastMessageId: string | null = null;
 
     const baseTime = session.createdAt ?? new Date();
 
-    for (const [index, conversation] of conversations.entries()) {
+    for (const [
+      index,
+      conversation,
+    ] of conversations.entries()) {
       const questionTime = new Date(baseTime.getTime() + index * 120_000);
 
       const answerTime = new Date(questionTime.getTime() + 30_000);

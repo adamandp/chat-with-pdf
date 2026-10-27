@@ -1,0 +1,9 @@
+version: 1
+name: document-storage
+slug: document-storage
+protocol: http
+interceptRequests: true
+scenarios:
+  - name: default
+    default: true
+    path: ./default.js

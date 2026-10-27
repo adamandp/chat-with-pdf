@@ -4,6 +4,7 @@ import { TransactionClient } from '../../src/generated/prisma/internal/prismaNam
 
 export async function seedUsers(db: TransactionClient): Promise<void> {
   const username = process.env.SEED_USERNAME;
+
   const password = process.env.SEED_PASSWORD;
 
   if (!username || !password) {

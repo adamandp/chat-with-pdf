@@ -5,15 +5,10 @@ import {
   Req,
   Res,
   Get,
-  UseGuards,
 } from '@nestjs/common';
-import { LoginRateLimitGuard } from '../../common/guards/login-rate-limit.guard';
 import { AuthService } from './auth.service.js';
 import { PinoLogger } from 'nestjs-pino';
-import type {
-  CookieRequest,
-  WebResponse,
-} from '../../common/common.interface.js';
+import type { CookieRequest, WebResponse } from '../../common/common.interface.js';
 import type { Response } from 'express';
 import moment from 'moment-timezone';
 import { LoginDto } from './dto/login.dto.js';
@@ -42,7 +37,6 @@ export class AuthController {
   }
 
   @Post('login')
-  @UseGuards(LoginRateLimitGuard)
   @Public()
   async login(
     @Body() loginDto: LoginDto,
@@ -50,12 +44,20 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<WebResponse<LoginResDTO>> {
     const { message, data } = await this.authService.login(loginDto, request);
-    response.cookie('refreshToken', data!.refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax' as const,
-      expires: moment().add(7, 'days').toDate(),
-    });
+
+    response.cookie(
+      'refreshToken',
+      data!.refreshToken,
+      {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax' as const,
+        expires: moment()
+          .add(7, 'days')
+          .toDate(),
+      },
+    );
+
     return {
       message,
       data: {
@@ -71,6 +73,7 @@ export class AuthController {
     const { message, data } = await this.authService.getProfile({
       id: payload.sub,
     });
+
     return {
       message,
       data,
@@ -83,7 +86,9 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<WebResponse> {
     await this.authService.logoutAll(payload.sub);
+
     response.clearCookie('refreshToken');
+
     return { message: 'Logged out from all devices.' };
   }
 
@@ -94,7 +99,9 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<WebResponse> {
     const result = await this.authService.logout(request);
+
     response.clearCookie('refreshToken');
+
     return result;
   }
 }

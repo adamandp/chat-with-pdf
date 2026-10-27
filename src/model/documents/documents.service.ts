@@ -1,135 +1,30 @@
 import {
-  BadRequestException,
-  GoneException,
+  ConflictException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { StorageService } from '../../common/storage/storage.service';
-import { PdfService } from './pdf.service';
-import type { Document } from '../../generated/prisma/client';
+import { DocumentStatus } from '../../generated/prisma/enums';
+import { DocumentResDTO, PresignUrlResDTO } from './documents.interface';
+import { WebResponse } from '../../common/common.interface';
+import { DocumentQueueService } from './queue/document-queue.service';
+import { DocumentProgressService } from './queue/document-progress.service';
+import type { DocumentProgress } from './documents.interface';
+import { CreatePresignUrlDTO } from './dto/presign.dto';
 
 @Injectable()
 export class DocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
-    private readonly pdf: PdfService,
+    private readonly jobs: DocumentQueueService,
+    private readonly documentProgress: DocumentProgressService,
   ) {}
 
-  async presign(userId: string, filename: string) {
-    const id = randomUUID();
-
-    const key = `${userId}/${id}.pdf`;
-
-    const url = await this.storage.presignedPutObject(this.storage.bucket, key, 900);
-
-    await this.prisma.documentUpload.create({
-      data: {
-        id,
-        userId,
-        objectKey: key,
-        filename,
-        expiresAt: new Date(Date.now() + 900000),
-      },
-    });
-
-    return {
-      data: {
-        upload_id: id,
-        object_key: key,
-        upload_url: url,
-        method: 'PUT',
-        expires_in: 900,
-      },
-    };
-  }
-
-  async response(doc: Document) {
-    return {
-      id: doc.id,
-      filename: doc.filename,
-      status: doc.status,
-      page_count: doc.pageCount,
-      chunk_count: doc.chunkCount,
-      error_message: doc.errorMessage,
-      download_url: await this.storage.presignedGetObject(this.storage.bucket, doc.filePath, 900),
-    };
-  }
-
-  async upload(userId: string, uploadId: string) {
-    const doc = await this.prisma.$transaction(
-      async (tx) => {
-        await tx.$queryRaw`SELECT id FROM document_uploads WHERE id=${uploadId}::uuid AND user_id=${userId}::uuid FOR UPDATE`;
-
-        const reservation = await tx.documentUpload.findFirst({
-          where: {
-            id: uploadId,
-            userId,
-          },
-        });
-
-        if (!reservation)
-          throw new NotFoundException('Upload reservation not found');
-        if (reservation.documentId)
-          return tx.document.findUniqueOrThrow({
-            where: { id: reservation.documentId },
-          });
-        if (reservation.expiresAt.getTime() < Date.now())
-          throw new GoneException(
-            'Upload reservation expired; request a new upload URL',
-          );
-
-        const { data, hash } = await this.readPdf(
-          reservation.objectKey,
-        );
-
-        const pages = await this.pdf.extract(data);
-
-        const id = randomUUID();
-
-        const key = `${userId}/final/${id}.pdf`;
-
-        await this.storage.putObject(this.storage.bucket, key, data, data.length, {
-          'Content-Type': 'application/pdf',
-        });
-
-        const document = await tx.document.create({
-          data: {
-            id,
-            userId,
-            filename: reservation.filename,
-            filePath: key,
-            fileSize: BigInt(data.length),
-            mimeType: 'application/pdf',
-            sha256Hash: hash,
-            pageCount: pages.length,
-            status: 'queued',
-          },
-        });
-
-        await tx.documentJob.create({
-          data: {
-            id: randomUUID(),
-            documentId: id,
-          },
-        });
-        await tx.documentUpload.update({
-          where: { id: uploadId },
-          data: { documentId: id },
-        });
-
-        return document;
-      },
-      { timeout: 120000 },
-    );
-
-    return { data: await this.response(doc) };
-  }
-
-  async findOne(userId: string, id: string) {
-    const doc = await this.prisma.document.findFirst({
+  private async ownedDocument(userId: string, id: string) {
+    const document = await this.prisma.document.findFirst({
       where: {
         id,
         userId,
@@ -137,46 +32,175 @@ export class DocumentsService {
       },
     });
 
-    if (!doc) throw new NotFoundException('Document not found');
+    if (!document) throw new NotFoundException('Document not found');
 
-    return { data: await this.response(doc) };
+    return document;
   }
 
-  async readPdf(key: string) {
-    try {
-      const stat = await this.storage.statObject(this.storage.bucket, key);
+  async process(
+    userId: string,
+    id: string,
+  ): Promise<WebResponse<DocumentProgress>> {
+    // validate document owner
+    const document = await this.ownedDocument(userId, id);
 
-      if (stat.size < 5 || stat.size > this.pdf.maxBytes) {
-        throw new BadRequestException('PDF is empty or exceeds the size limit');
-      }
+    // validate documents status
+    if (
+      document.status === DocumentStatus.READY
+      || document.status === DocumentStatus.DELETING
+      || document.status === DocumentStatus.DELETED
+    ) {
+      throw new ConflictException(
+        'Document cannot be processed in its current status',
+      );
+    }
 
-      const stream = await this.storage.getObject(this.storage.bucket, key);
-
-      const chunks: Buffer[] = [];
-
-      let size = 0;
-
-      for await (const part of stream) {
-        const chunk = Buffer.from(part);
-
-        size += chunk.length;
-        if (size > this.pdf.maxBytes) {
-          stream.destroy();
-          throw new BadRequestException('PDF exceeds the size limit');
-        }
-        chunks.push(chunk);
-      }
-
-      const data = Buffer.concat(chunks);
-
+    // if document is already processing, return progress
+    if (document.status === DocumentStatus.PROCESSING) {
       return {
-        data,
-        hash: this.pdf.validate(data),
+        data: {
+          document_id: id,
+          status: document.status,
+          progress: 0,
+        },
+      };
+    }
+
+    // update document status
+    const claimed = await this.prisma.document.updateMany({
+      where: {
+        id,
+        userId,
+        deletedAt: null,
+        status: {
+          in: [
+            DocumentStatus.PENDING_UPLOAD,
+            DocumentStatus.FAILED,
+          ],
+        },
+      },
+      data: {
+        status: DocumentStatus.QUEUED,
+        errorMessage: null,
+      },
+    });
+
+    // Repeated requests reuse the same BullMQ job ID, including an enqueue interrupted by a restart.
+    try {
+      // process job
+      await this.jobs.enqueue({
+        documentId: id,
+        userId,
+      });
+    } catch {
+      // revert document status
+      if (claimed.count) {
+        await this.prisma.document.updateMany({
+          where: {
+            id,
+            userId,
+            status: DocumentStatus.QUEUED,
+          },
+          data: {
+            status: document.status,
+            errorMessage: document.errorMessage,
+          },
+        });
+      }
+
+      throw new ServiceUnavailableException(
+        'Document queue unavailable; please retry',
+      );
+    }
+
+    return {
+      data: {
+        document_id: id,
+        status: DocumentStatus.QUEUED,
+        progress: 0,
+      },
+    };
+  }
+
+  async progress(userId: string, id: string) {
+    const document = await this.ownedDocument(userId, id);
+
+    return this.documentProgress.stream(
+      id,
+      {
+        document_id: id,
+        status: document.status,
+        progress: document.status === DocumentStatus.READY ? 100 : 0,
+        ...(document.errorMessage ? { error: document.errorMessage } : {}),
+      },
+    );
+  }
+
+  async findOne(
+    userId: string,
+    id: string,
+  ): Promise<WebResponse<DocumentResDTO>> {
+    const document = await this.prisma.document.findFirst({
+      where: {
+        id,
+        userId,
+        deletedAt: null,
+      },
+    });
+
+    if (!document) throw new NotFoundException('Document not found');
+
+    const downloadUrl = await this.storage.presignedGetObject(
+      this.storage.bucket,
+      document?.id,
+      900,
+    );
+
+    return {
+      data: {
+        ...document,
+        fileSize: document.fileSize?.toString() ?? null,
+        download_url: downloadUrl,
+      },
+    };
+  }
+
+  async createPresignUrl(
+    userId: string,
+    body: CreatePresignUrlDTO,
+  ): Promise<WebResponse<PresignUrlResDTO>> {
+    const expired_url = 900;
+
+    // create metadata to postgre
+    const document = await this.prisma.document.create({
+      data: {
+        userId,
+        fileName: body.fileName,
+        status: DocumentStatus.PENDING_UPLOAD,
+      },
+    });
+
+    try {
+      // create presigned url
+      const url = await this.storage.presignedPutObject(
+        this.storage.bucket,
+        document.id,
+        expired_url,
+      );
+
+      // return data
+      return {
+        data: {
+          document_id: document.id,
+          upload_url: url,
+          expires_in: expired_url,
+        },
       };
     } catch (error) {
-      if ((error as { code?: string }).code === 'NoSuchKey') {
-        throw new NotFoundException('Uploaded object not found');
-      }
+      await this.prisma.document.delete({
+        where: { id: document.id },
+      });
+
       throw error;
     }
   }

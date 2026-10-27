@@ -81,7 +81,7 @@ paths:
   /chat:
     post:
       summary: Answer a PDF question using LangChain and LangGraph, at most 3 searches
-      description: 'Synchronous response. Documents must all be ready and belong to the user. Omit conversation_id for a new conversation. Failed generation does not save partial messages. Concurrent updates to the same conversation return 409; retry with the current history. PDF text is untrusted context; citations identify document and 1-based page. Context sufficiency is an LLM judgment, not a correctness guarantee.'
+      description: 'Synchronous response. Documents must all be ready and belong to the user. Omit session_id for a new conversation. Failed generation does not save partial messages. Concurrent updates to the same conversation return 409; retry with the current history. PDF text is untrusted context; citations identify document and 1-based page. Context sufficiency is an LLM judgment, not a correctness guarantee.'
       requestBody:
         required: true
         content:
@@ -96,10 +96,10 @@ paths:
                   minItems: 1
                   maxItems: 10
                   items: { type: string, format: uuid }
-                conversation_id: { type: string, format: uuid }
+                session_id: { type: string, format: uuid }
       responses:
         '200':
-          description: 'data contains conversation_id, message_id, answer, sources [{source_id, document_id, filename, page, chunk_id}], search_attempts (1-3), context_sufficient'
+          description: 'data contains session_id, message_id, answer, sources [{source_id, document_id, filename, page, chunk_id}], search_attempts (1-3), context_sufficient'
         '401': { description: Authentication required }
         '404': { description: Document or conversation not found for this user }
         '409': { description: Documents not ready or conversation changed concurrently }
