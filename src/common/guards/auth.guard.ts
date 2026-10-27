@@ -14,6 +14,7 @@ export class AuthGuard extends PassportAuthGuard('jwt') {
     const request = context
       .switchToHttp()
       .getRequest<Request & { user?: unknown }>();
+
     delete request.user;
     if (
       this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, [
@@ -22,6 +23,7 @@ export class AuthGuard extends PassportAuthGuard('jwt') {
       ])
     )
       return true;
+
     return super.canActivate(context);
   }
 }

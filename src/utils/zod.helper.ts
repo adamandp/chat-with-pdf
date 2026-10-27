@@ -111,6 +111,7 @@ export const priceMinMax = (field: string, min: number, max: number) =>
     );
 
 export const baseName = (name: string, min: number, max: number) =>
-  stringMinMax(name, min, max).regex(/^[A-Za-z\s]+$/, {
-    error: `Just letters & spaces, no secret codes! 🤨 {Name Only Letters}`,
-  });
+  stringMinMax(name, min, max)
+    .regex(/^[A-Za-z\s]+$/, {
+      error: `Just letters & spaces, no secret codes! 🤨 {Name Only Letters}`,
+    });

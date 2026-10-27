@@ -10,6 +10,8 @@ import { AuthGuard } from './guards/auth.guard';
 import { APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { ZodValidationPipe } from 'nestjs-zod';
 import { MilvusModule } from './milvus/milvus.module';
+import { StorageModule } from './storage/storage.module';
+import { AiModule } from './ai/ai.module';
 
 @Global()
 @Module({
@@ -17,17 +19,33 @@ import { MilvusModule } from './milvus/milvus.module';
     ConfigModule.forRoot({ isGlobal: true }),
     JwtModule.register({ global: true }),
     SessionModule,
-    PassportModule.register({ defaultStrategy: 'jwt', session: false }),
+    PassportModule.register({
+      defaultStrategy: 'jwt',
+      session: false,
+    }),
     PrismaModule,
     MilvusModule,
+    StorageModule,
+    AiModule,
     AppLoggerModule,
   ],
   providers: [
     JwtStrategy,
-    { provide: APP_GUARD, useClass: AuthGuard },
+    {
+      provide: APP_GUARD,
+      useClass: AuthGuard,
+    },
     AppLoggerModule,
-    { provide: APP_PIPE, useClass: ZodValidationPipe },
+    {
+      provide: APP_PIPE,
+      useClass: ZodValidationPipe,
+    },
   ],
-  exports: [PrismaModule, MilvusModule],
+  exports: [
+    PrismaModule,
+    MilvusModule,
+    StorageModule,
+    AiModule,
+  ],
 })
 export class CommonModule {}

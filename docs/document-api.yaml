@@ -1,0 +1,110 @@
+openapi: 3.0.3
+info:
+  title: PDF upload and chat API
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000
+security:
+  - bearerAuth: []
+paths:
+  /health/minio:
+    get:
+      summary: Check access to the configured MinIO bucket
+      description: Requires the existing bearer token. Makes a lightweight authenticated bucket existence request without uploading or downloading files.
+      responses:
+        '200':
+          description: 'Bucket is accessible; message and data {status: ok, minio: up}'
+        '401': { description: Authentication required }
+        '503':
+          description: 'Bucket missing, access denied or connection failure; errors and data {status: error, minio: down}'
+  /health/ai:
+    get:
+      summary: Probe the configured chat model with a small real request
+      description: Requires the existing bearer token. Uses the same provider, model and key as chat, has a ten-second timeout, and may consume provider quota. Does not check embeddings, PostgreSQL or Milvus.
+      responses:
+        '200':
+          description: 'AI responds with nonempty text; message and data {status: ok, ai: up}'
+        '401': { description: Authentication required }
+        '503':
+          description: 'Configuration, provider, empty response or timeout failure; errors and data {status: error, ai: down}. Provider details and credentials are not exposed.'
+  /presigned-url:
+    post:
+      summary: Reserve a PDF upload and return a 15-minute MinIO PUT URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename]
+              properties:
+                filename: { type: string, maxLength: 255, example: report.pdf }
+      responses:
+        '200':
+          description: 'data contains upload_id, object_key, upload_url, method=PUT, expires_in=900. PUT raw PDF bytes to upload_url before finalizing.'
+        '401': { description: Authentication required }
+        '400': { description: Invalid PDF filename }
+  /documents/upload:
+    post:
+      summary: Validate PDF, freeze a private copy, and atomically enqueue processing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [upload_id]
+              properties:
+                upload_id: { type: string, format: uuid }
+      responses:
+        '202':
+          description: 'data contains id, filename, status, page_count, chunk_count, error_message, download_url. Repeating upload_id returns the same document. Download URL expires after 15 minutes.'
+        '400': { description: Invalid PDF, encrypted PDF, over 20 MiB or over 2000 pages }
+        '401': { description: Authentication required }
+        '404': { description: Reservation or uploaded object not found for this user }
+        '410': { description: Unfinalized reservation expired }
+  /documents/{document_id}:
+    get:
+      summary: Poll document processing status and refresh its download URL
+      parameters:
+        - in: path
+          name: document_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          {
+            description: 'data contains id, filename, status (queued/processing/ready/failed), page_count, chunk_count, error_message, download_url',
+          }
+        '401': { description: Authentication required }
+        '404': { description: Document not found for this user }
+  /chat:
+    post:
+      summary: Answer a PDF question using LangChain and LangGraph, at most 3 searches
+      description: 'Synchronous response. Documents must all be ready and belong to the user. Omit conversation_id for a new conversation. Failed generation does not save partial messages. Concurrent updates to the same conversation return 409; retry with the current history. PDF text is untrusted context; citations identify document and 1-based page. Context sufficiency is an LLM judgment, not a correctness guarantee.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question, document_ids]
+              properties:
+                question: { type: string, minLength: 1, maxLength: 8000 }
+                document_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items: { type: string, format: uuid }
+                conversation_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 'data contains conversation_id, message_id, answer, sources [{source_id, document_id, filename, page, chunk_id}], search_attempts (1-3), context_sufficient'
+        '401': { description: Authentication required }
+        '404': { description: Document or conversation not found for this user }
+        '409': { description: Documents not ready or conversation changed concurrently }
+        '400': { description: Invalid request body }
+        '503': { description: LLM or retrieval failure; retry later }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }

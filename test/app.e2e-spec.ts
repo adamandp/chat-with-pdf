@@ -6,6 +6,8 @@ import 'dotenv/config';
 import { createRequire } from 'node:module';
 const require = createRequire(`${process.cwd()}/test/loader.cjs`);
 const { AppModule } = require('../dist/app.module');
+const { DocumentWorkerService } = require('../dist/model/documents/document-worker.service');
+const { StorageService } = require('../dist/common/storage/storage.service');
 const { MilvusService } = require('../dist/common/milvus/milvus.service');
 
 describe('AppController (e2e)', () => {
@@ -15,6 +17,10 @@ describe('AppController (e2e)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
+      .overrideProvider(DocumentWorkerService)
+      .useValue({})
+      .overrideProvider(StorageService)
+      .useValue({})
       .overrideProvider(MilvusService)
       .useValue({})
       .compile();

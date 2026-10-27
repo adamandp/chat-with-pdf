@@ -129,3 +129,10 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+# PDF upload and chat
+
+The document pipeline and single `POST /chat` endpoint run directly in NestJS.
+See [setup and frontend flow](docs/005-document-pipeline.md) and the
+[OpenAPI contract](docs/document-api.yaml). Starting the application also starts
+PDF processing in the same Nest process; no separate worker command is needed.

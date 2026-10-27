@@ -152,3 +152,7 @@ compose.override.yml
 *.backup
 *.dump
 *.sql.gz
+
+# Application source modules are not runtime object storage.
+!src/common/storage/
+!src/common/storage/**

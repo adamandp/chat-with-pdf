@@ -6,11 +6,21 @@ import cookieParser from 'cookie-parser';
 import { randomUUID, createHash } from 'node:crypto';
 import 'dotenv/config';
 import { createRequire } from 'node:module';
+
 const require = createRequire(`${process.cwd()}/test/loader.cjs`);
+
 const { AppModule } = require('../dist/app.module');
+
+const { DocumentWorkerService } = require('../dist/model/documents/document-worker.service');
+
 const { MilvusService } = require('../dist/common/milvus/milvus.service');
+
 const { PrismaService } = require('../dist/common/prisma/prisma.service');
+
+const { StorageService } = require('../dist/common/storage/storage.service');
+
 const { SessionService } = require('../dist/model/session/session.service');
+
 const {
   LoginRateLimitGuard,
 } = require('../dist/common/guards/login-rate-limit.guard');
@@ -18,17 +28,27 @@ const {
 // Uses the configured development database; removes only records created here.
 describe('auth with PostgreSQL (e2e)', () => {
   let app: INestApplication;
+
   let db: InstanceType<typeof PrismaService>;
+
   let sessions: InstanceType<typeof SessionService>;
+
   let userId: string | undefined;
+
   const username = `auth-test-${randomUUID()}`;
+
   const password = 'TestPassword123!';
 
   beforeAll(async () => {
     const module = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(DocumentWorkerService)
+      .useValue({})
+      .overrideProvider(StorageService)
+      .useValue({})
       .overrideProvider(MilvusService)
       .useValue({})
       .compile();
+
     app = module.createNestApplication();
     app.use(cookieParser());
     app.use((req: object, _res: object, next: () => void) => {
@@ -42,32 +62,45 @@ describe('auth with PostgreSQL (e2e)', () => {
 
   afterAll(async () => {
     if (userId) await db.user.delete({ where: { id: userId } });
-    const keys = [`username:${username}`, `ip:${username}`].map((value) =>
+
+    const keys = [
+      `username:${username}`,
+      `ip:${username}`,
+    ].map((value) =>
       createHash('sha256').update(value).digest('hex'),
     );
+
     await db.$executeRaw`DELETE FROM auth_rate_limits WHERE key IN (${keys[0]}, ${keys[1]})`;
     await app?.close();
   });
 
   it('registers without a session, enforces LRU, revokes access+refresh on logout and logout-all', async () => {
     const server = app.getHttpServer();
+
     const registered = await request(server)
       .post('/auth/register')
       .send({ username, password })
       .expect(201);
+
     expect(registered.headers['set-cookie']).toBeUndefined();
+
     const user = await db.user.findUniqueOrThrow({ where: { username } });
+
     userId = user.id;
     expect(user.email).toBeNull();
     expect(await db.authSession.count({ where: { userId } })).toBe(0);
     await request(server).get('/auth/profile').expect(401);
+
     const devices: { access: string; cookie: string; sid: string }[] = [];
+
     const jwt = new JwtService();
+
     for (let index = 0; index < 5; index++) {
       const res = await request(server)
         .post('/auth/login')
         .send({ username, password })
         .expect(201);
+
       expect(res.body.data).toEqual({ accessToken: expect.any(String) });
       devices.push({
         access: res.body.data.accessToken,
@@ -153,16 +186,19 @@ describe('auth with PostgreSQL (e2e)', () => {
 
   it('enforces shared rate counters atomically against PostgreSQL', async () => {
     const guard = new LoginRateLimitGuard(db);
+
     const context = {
       switchToHttp: () => ({
         getRequest: () => ({ ip: username, socket: {}, body: { username } }),
         getResponse: () => ({ setHeader: () => {} }),
       }),
     };
+
     // Six real logins above already consumed six account attempts.
     const results = await Promise.allSettled(
       Array.from({ length: 10 }, () => guard.canActivate(context)),
     );
+
     expect(
       results.filter((result) => result.status === 'fulfilled'),
     ).toHaveLength(4);

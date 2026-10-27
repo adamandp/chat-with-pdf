@@ -36,6 +36,8 @@ async function main(): Promise<void> {
         await tx.sessionDocument.deleteMany();
         await tx.chatHistory.deleteMany();
         await tx.chatSession.deleteMany();
+        await tx.documentJob.deleteMany();
+        await tx.documentUpload.deleteMany();
         await tx.document.deleteMany();
         await tx.user.deleteMany();
 

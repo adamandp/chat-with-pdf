@@ -7,6 +7,16 @@ import type { HealthResponse } from './health.interface';
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
 
+  @Get('minio')
+  checkMinio(): Promise<WebResponse<HealthResponse>> {
+    return this.healthService.checkMinio();
+  }
+
+  @Get('ai')
+  checkAi(): Promise<WebResponse<HealthResponse>> {
+    return this.healthService.checkAi();
+  }
+
   @Get('postgres')
   checkPostgres(): Promise<WebResponse<HealthResponse>> {
     return this.healthService.checkPostgres();

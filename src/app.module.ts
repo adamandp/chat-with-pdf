@@ -1,30 +1,19 @@
 import { Module } from '@nestjs/common';
-import { createObserveModule } from '@nestjs/observe';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import { CommonModule } from './common/common.module';
 import { ChatSessionModule } from './model/chat-session/chat-session.module';
 import { AuthModule } from './model/auth/auth.module';
 import { HealthModule } from './model/health/health.module';
-
-export const { ObserveModule, ObserveInstrument } = createObserveModule();
+import { DocumentsModule } from './model/documents/documents.module';
+import { ChatModule } from './model/chat/chat.module';
 
 @Module({
   imports: [
-    // Distributed tracing, auto-correlated logs, request/job metrics, error
-    // telemetry, alarms, and more — out of the box. Sign up at https://observe.nestjs.com
-    // ObserveModule.forRoot({
-    //   appKey: process.env.OBSERVE_APP_KEY ?? '',
-    //   appSecret: process.env.OBSERVE_APP_SECRET ?? '',
-    //   runtimeMetrics: !Boolean(process.versions?.['webcontainer']),
-    //   serviceId: 'nest-typescript-starter',
-    // }),
     CommonModule,
     HealthModule,
     ChatSessionModule,
     AuthModule,
+    DocumentsModule,
+    ChatModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
 })
 export class AppModule {}
