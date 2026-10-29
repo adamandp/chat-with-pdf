@@ -1,24 +1,16 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { DiscoveryModule } from '@nestjs/core';
 import { BullModule } from '@nestjs/bullmq';
-import { createQueueConfig } from './queue.config';
-import { QueueConnectionService } from './queue-connection.service';
+import { appQueueConfig } from './queue.config';
 
 @Module({
   imports: [
-    ConfigModule,
-    DiscoveryModule,
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: createQueueConfig,
+      useFactory: appQueueConfig,
     }),
   ],
-  providers: [QueueConnectionService],
-  exports: [
-    BullModule,
-    QueueConnectionService,
-  ],
+  exports: [QueueModule],
 })
 export class QueueModule {}

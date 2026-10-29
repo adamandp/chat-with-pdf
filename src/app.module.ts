@@ -4,7 +4,7 @@ import { ChatSessionModule } from './model/chat-session/chat-session.module';
 import { AuthModule } from './model/auth/auth.module';
 import { HealthModule } from './model/health/health.module';
 import { DocumentsModule } from './model/documents/documents.module';
-import { ChatModule } from './model/chat/chat.module';
+// import { ChatModule } from './model/chat/chat.module';
 
 @Module({
   imports: [
@@ -13,7 +13,7 @@ import { ChatModule } from './model/chat/chat.module';
     ChatSessionModule,
     AuthModule,
     DocumentsModule,
-    ChatModule,
+    // ChatModule,
   ],
 })
 export class AppModule {}

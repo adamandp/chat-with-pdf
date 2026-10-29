@@ -9,7 +9,12 @@ export class StorageService extends Client implements OnModuleInit {
   constructor(config: ConfigService) {
     const secure = config.get('MINIO_SECURE', 'false') === 'true';
 
-    const url = new URL(`${secure ? 'https' : 'http'}://${config.get('MINIO_ENDPOINT', 'localhost:9000')}`);
+    const url = new URL(
+      `${secure ? 'https' : 'http'}://${config.get(
+        'MINIO_ENDPOINT',
+        'localhost:9000',
+      )}`,
+    );
 
     super({
       endPoint: url.hostname,

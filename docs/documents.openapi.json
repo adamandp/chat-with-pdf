@@ -192,7 +192,7 @@
         ],
         "responses": {
           "200": {
-            "description": "SSE data contains DocumentProgress JSON; heartbeat events contain an empty object",
+            "description": "Sends an immediate document/job snapshot, then live queue updates as message events. Heartbeat events contain an empty object every 15 seconds. Closes after READY or FAILED.",
             "content": {
               "text/event-stream": {
                 "schema": {
@@ -264,6 +264,109 @@
           },
           "404": {
             "description": "Request failed"
+          }
+        }
+      }
+    },
+    "/documents": {
+      "get": {
+        "operationId": "findAllDocuments",
+        "summary": "List active documents owned by the authenticated user",
+        "description": "Ordered by updatedAt descending, then id descending. Soft-deleted documents are excluded. fileSize is a decimal string or null to preserve BigInt precision. Use GET /documents/{id} for a download URL.",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document page. An empty collection returns data: [] and totalPages: 0.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "paging"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "description": "Document metadata, with fileSize serialized as a decimal string or null.",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "fileSize": {
+                            "type": "string",
+                            "nullable": true,
+                            "pattern": "^[0-9]+$"
+                          }
+                        }
+                      }
+                    },
+                    "paging": {
+                      "type": "object",
+                      "required": [
+                        "currentPage",
+                        "pageSize",
+                        "totalItems",
+                        "totalPages"
+                      ],
+                      "properties": {
+                        "currentPage": {
+                          "type": "integer"
+                        },
+                        "pageSize": {
+                          "type": "integer"
+                        },
+                        "totalItems": {
+                          "type": "integer"
+                        },
+                        "totalPages": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "data": [],
+                  "paging": {
+                    "currentPage": 1,
+                    "pageSize": 10,
+                    "totalItems": 0,
+                    "totalPages": 0
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid page or limit (must be integers between 1 and 100)"
+          },
+          "401": {
+            "description": "Authentication required"
           }
         }
       }

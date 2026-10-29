@@ -13,12 +13,6 @@ export class HealthController {
     return this.healthService.checkMinio();
   }
 
-  // check ai health
-  @Get('ai')
-  checkAi(): Promise<WebResponse<HealthResponse>> {
-    return this.healthService.checkAi();
-  }
-
   // check postgres health
   @Get('postgres')
   checkPostgres(): Promise<WebResponse<HealthResponse>> {
@@ -29,5 +23,17 @@ export class HealthController {
   @Get('milvus')
   checkMilvus(): Promise<WebResponse<HealthResponse>> {
     return this.healthService.checkMilvus();
+  }
+
+  // check gemini health
+  @Get('gemini')
+  checkAi(): Promise<WebResponse<HealthResponse>> {
+    return this.healthService.checkGemini();
+  }
+
+  // check groq health
+  @Get('groq')
+  checkGroq(): Promise<WebResponse<HealthResponse>> {
+    return this.healthService.checkGroq();
   }
 }

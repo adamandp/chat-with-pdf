@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
-import { AiService } from './ai.service';
+import { GeminiService } from './gemini.service';
+import { GroqService } from './groq.service';
+
 @Module({
-  providers: [AiService],
-  exports: [AiService],
+  providers: [GeminiService, GroqService],
+  exports: [GeminiService, GroqService],
 })
+  
 export class AiModule {}

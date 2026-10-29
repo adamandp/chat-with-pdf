@@ -49,6 +49,6 @@ export const documentSchema = z.object({
 
 export type DocumentDto = z.infer<typeof documentSchema>;
 
-export const presignUrlSchema = z.object({
-  fileName: z.string().trim().min(1).max(255),
+export const presignUrlSchema = documentSchema.pick({
+  fileName: true,
 });

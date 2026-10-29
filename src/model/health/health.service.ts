@@ -2,18 +2,24 @@ import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import type { WebResponse } from '../../common/common.interface';
 import type { HealthResponse } from './health.interface';
 import { StorageService } from '../../common/storage/storage.service';
-import { AiService } from '../../common/ai/ai.service';
+import { GeminiService } from '../../common/ai/gemini.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { MilvusService } from '../../common/milvus/milvus.service';
+import { PinoLogger } from 'nestjs-pino';
+import { GroqService } from '../../common/ai/groq.service';
 
 @Injectable()
 export class HealthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly milvus: MilvusService,
-    private readonly ai: AiService,
+    private readonly gemini: GeminiService,
+    private readonly groq: GroqService,
     private readonly storage: StorageService,
-  ) {}
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(HealthService.name);
+  }
 
   // check minio health
   async checkMinio(): Promise<WebResponse<HealthResponse>> {
@@ -34,39 +40,6 @@ export class HealthService {
       // return unhealthy
       throw new ServiceUnavailableException({
         errors: 'MinIO connection failed',
-        data: {
-          status: 'error',
-          connection: 'down',
-        },
-      });
-    }
-  }
-
-  // check ai health
-  async checkAi(): Promise<WebResponse<HealthResponse>> {
-    try {
-      // check ai
-      await this.ai
-        .chatModel()
-        .invoke(
-          'Reply with only OK.',
-          {
-            signal: AbortSignal.timeout(10_000),
-          },
-        );
-
-      // return healthy
-      return {
-        message: 'AI connection is healthy',
-        data: {
-          status: 'ok',
-          connection: 'up',
-        },
-      };
-    } catch {
-      // return unhealthy
-      throw new ServiceUnavailableException({
-        errors: 'AI connection failed',
         data: {
           status: 'error',
           connection: 'down',
@@ -126,6 +99,73 @@ export class HealthService {
         data: {
           status: 'error',
           database: 'down',
+        },
+      });
+    }
+  }
+
+  // check ai health
+  async checkGemini(): Promise<WebResponse<HealthResponse>> {
+    try {
+      // check ai
+      await this.gemini
+        .chatModel()
+        .invoke(
+          'Reply with only OK.',
+          {
+            timeout: 1000,
+          },
+        );
+      return {
+        message: 'AI connection is healthy',
+        data: {
+          status: 'ok',
+          connection: 'up',
+        },
+      };
+    } catch (error) {
+      // return unhealthy
+
+      this.logger.error('Gemini health check failed:', error);
+
+      throw new ServiceUnavailableException({
+        errors: 'AI connection failed',
+        data: {
+          status: 'error',
+          connection: 'down',
+        },
+      });
+    }
+  }
+
+  async checkGroq(): Promise<WebResponse<HealthResponse>> {
+    try {
+      // check ai
+      await this.groq
+        .chatModel()
+        .invoke(
+          'Reply with only OK.',
+          {
+            timeout: 1000,
+          },
+        );
+      return {
+        message: 'AI connection is healthy',
+        data: {
+          status: 'ok',
+          connection: 'up',
+        },
+      };
+    } catch (error) {
+      // return unhealthy
+
+      this.logger.error('Groq health check failed:', error);
+
+      throw new ServiceUnavailableException({
+        errors: 'AI connection failed',
+        data: {
+          status: 'error',
+          connection: 'down',
         },
       });
     }

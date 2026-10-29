@@ -1,47 +1,65 @@
-import type { DocumentStatus } from '../../generated/prisma/enums';
 import type { Document } from '../../generated/prisma/client';
+import { createZodDto } from 'nestjs-zod';
+import z from 'zod';
+import { documentSchema } from './documents.validation';
 
-export type DocumentResDTO = Omit<Document, 'fileSize'> & {
-  fileSize: string | null;
-  download_url: string;
-};
+class DocumentDTO
+  extends createZodDto(documentSchema)
+  implements z.infer<typeof documentSchema> { }
 
-export interface Chunk {
-  id: string;
-  user_id: string;
-  document_id: string;
-  filename: string;
-  page: number;
-  text: string;
-}
-export interface Source {
-  source_id: number;
-  document_id: string;
-  filename: string;
-  page: number;
-  chunk_id: string;
-}
-export interface DocumentJob {
-  id: string;
-  documentId: string;
-  attempts: number;
-  leaseId: string;
-}
+type DocumentProcessDTO = Pick<Document, 'id'>;
 
-export interface PresignUrlResDTO {
+interface PresignUrlDTO {
   document_id: string;
   upload_url: string;
   expires_in: number;
 }
 
-export interface ProcessDocumentJob {
+type DocumentFindOneDTO = Document & {
+  download_url: string;
+};
+
+type DocumentFindAllDTO = (Omit<Document, 'fileSize'> & {
+  fileSize: string | null;
+})[];
+
+type ProcessDocumentType = {
+  userId: string;
+  documentId: string;
+};
+
+type ProcessDocumentDTO = Pick<
+  DocumentDTO,
+  'id' | 'status'
+>;
+
+type PdfPage = { pageNumber: number;
+  content: string; };
+
+type PdfExtraction = { pages: PdfPage[];
+  pageCount: number; };
+
+type Chunk = {
+  id: string;
   documentId: string;
   userId: string;
-}
+  chunkIndex: number;
+  pageNumber: number;
+  content: string;
+  metadata: Record<string, string | number>;
+};
 
-export interface DocumentProgress {
-  document_id: string;
-  progress: number;
-  status: DocumentStatus;
-  error?: string;
-}
+type EmbeddedChunk = Chunk & { embedding: number[] };
+
+export type {
+  DocumentDTO,
+  DocumentProcessDTO,
+  PresignUrlDTO,
+  DocumentFindOneDTO,
+  DocumentFindAllDTO,
+  ProcessDocumentType,
+  PdfPage,
+  PdfExtraction,
+  Chunk,
+  EmbeddedChunk,
+};

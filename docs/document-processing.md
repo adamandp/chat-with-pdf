@@ -8,7 +8,8 @@ All document endpoints require `Authorization: Bearer <accessToken>` and check o
 3. `POST /documents/<document_id>/process`, no body. Returns `202` with
    `data: { document_id, status: "QUEUED", progress: 0 }` (or `PROCESSING` for an already running job).
 4. `GET /documents/<document_id>/progress`, with `Accept: text/event-stream`.
-   Can connect before or after starting the process. Reconnecting reads the latest job snapshot.
+   Can connect before or after starting the process. Each connection sends the persisted document status and current BullMQ job progress immediately, then forwards live queue events. Heartbeats every 15 seconds indicate the SSE connection is alive, not that the worker is advancing.
+   The worker and queue listener must both be registered as providers in DocumentsModule; registering the queue alone does not start a consumer.
 
 Example SSE messages (each event ends with a blank line):
 
@@ -20,8 +21,8 @@ data: {"document_id":"<uuid>","progress":95,"status":"PROCESSING"}
 data: {"document_id":"<uuid>","progress":100,"status":"READY"}
 ```
 
-Progress is a weighted measure of work, not elapsed time: read/validate/hash 0–10,
-page extraction 10–35, chunking 35–40, embedding + Milvus batches 40–95, final flush + DB 95–100.
+Progress marks completed stages, not elapsed time: worker start 5, download 15,
+PDF extraction 40, chunking 60, enrichment 70, embedding 90, vector storage 95, metadata 100.
 `READY` is emitted only after storage completes. `FAILED` includes a safe `error` message;
 PDFs without text fail with an OCR-required message. Streams close on READY/FAILED and
 send `event: heartbeat` with `{}` every 15 seconds while idle.

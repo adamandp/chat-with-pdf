@@ -1,32 +1,21 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { DOCUMENT_QUEUE } from './queue/document-queue.constants';
-import { DocumentProgressService } from './queue/document-progress.service';
+import { DOCUMENT_QUEUE } from './queue/documents.constants';
 import { QueueModule } from '../../common/queue/queue.module';
 import { DocumentsController } from './documents.controller';
 import { DocumentsService } from './documents.service';
-import { DocumentQueueService } from './queue/document-queue.service';
-import { DocumentWorkerService } from './processing/document-worker.service';
-import { PdfService } from './processing/pdf.service';
-import { VectorService } from './processing/vector.service';
+import { DocumentsProcessor } from './queue/documents.processor';
+import { DocumentsListener } from './queue/document-progress.service';
 
 @Module({
   imports: [
     QueueModule,
     BullModule.registerQueue({
-      name: DOCUMENT_QUEUE,
+      name: DOCUMENT_QUEUE.DOCUMENTS.NAME,
       defaultJobOptions: { attempts: 1 },
     }),
   ],
   controllers: [DocumentsController],
-  exports: [VectorService],
-  providers: [
-    DocumentsService,
-    DocumentQueueService,
-    DocumentProgressService,
-    DocumentWorkerService,
-    PdfService,
-    VectorService,
-  ],
+  providers: [DocumentsService, DocumentsProcessor, DocumentsListener],
 })
 export class DocumentsModule {}

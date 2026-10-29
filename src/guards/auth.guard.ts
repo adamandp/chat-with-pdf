@@ -2,7 +2,7 @@ import { ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard as PassportAuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
-import { IS_PUBLIC } from '../../decorators/public.decorator';
+import { IS_PUBLIC } from '../decorators/public.decorator';
 
 @Injectable()
 export class AuthGuard extends PassportAuthGuard('jwt') {
@@ -16,11 +16,15 @@ export class AuthGuard extends PassportAuthGuard('jwt') {
       .getRequest<Request & { user?: unknown }>();
 
     delete request.user;
+
     if (
-      this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, [
-        context.getHandler(),
-        context.getClass(),
-      ])
+      this.reflector.getAllAndOverride<boolean>(
+        IS_PUBLIC,
+        [
+          context.getHandler(),
+          context.getClass(),
+        ],
+      )
     )
       return true;
 
