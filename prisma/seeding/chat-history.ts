@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
 import { dummyConversations } from './dummy/chat-history';
-import type { Prisma } from '../../src/generated/prisma/client';
+import {
+  ChatHistoryStatus,
+  type Prisma,
+} from '../../src/generated/prisma/client';
 
 const MIN_CONVERSATIONS = 6;
 
@@ -52,10 +55,7 @@ export async function seedChatHistory(
 
     const baseTime = session.createdAt ?? new Date();
 
-    for (const [
-      index,
-      conversation,
-    ] of conversations.entries()) {
+    for (const [index, conversation] of conversations.entries()) {
       const questionTime = new Date(baseTime.getTime() + index * 120_000);
 
       const answerTime = new Date(questionTime.getTime() + 30_000);
@@ -67,10 +67,9 @@ export async function seedChatHistory(
         data: {
           sessionId: session.id,
           parentMessageId,
-          versionGroupId: randomUUID(),
           role: 'user',
           content: conversation.question,
-          status: 'completed',
+          status: ChatHistoryStatus.COMPLETED,
           answerMode: session.answerMode,
           createdAt: questionTime,
         },
@@ -86,10 +85,9 @@ export async function seedChatHistory(
         data: {
           sessionId: session.id,
           parentMessageId: userMessage.id,
-          versionGroupId: randomUUID(),
           role: 'assistant',
           content: conversation.answer,
-          status: 'completed',
+          status: ChatHistoryStatus.COMPLETED,
           answerMode: session.answerMode,
           createdAt: answerTime,
         },

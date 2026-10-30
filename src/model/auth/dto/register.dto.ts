@@ -8,15 +8,15 @@ const registerSchema = userSchema
     name: true,
   })
   .extend({
-    password: z
-      .string()
-      .min(8)
-      .max(100),
+    username: userSchema.shape.username.unwrap(),
+    name: userSchema.shape.name.unwrap().optional(),
+    password: z.string().min(8).max(100),
   });
 
 export class RegisterDTO
   extends createZodDto(registerSchema)
-  implements z.infer<typeof registerSchema> {
+  implements z.infer<typeof registerSchema>
+{
   constructor() {
     super();
   }

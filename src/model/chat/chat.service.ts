@@ -1,301 +1,356 @@
-// import { randomUUID } from 'node:crypto';
-// import { chatRequestContext } from './chat-request-log';
-// import {
-//   Injectable,
-//   ServiceUnavailableException,
-//   HttpException,
-//   HttpStatus,
-// } from '@nestjs/common';
-// import { ConfigService } from '@nestjs/config';
-// import { PinoLogger } from 'nestjs-pino';
-// import { VectorService } from '../documents/processing/vector.service';
-// import { ChatModelService } from './chat-model.service';
-// import { ChatRepository } from './chat.repository';
-// import { traceChatOperation } from './chat-trace';
-// import { buildChatGraph } from './chat.graph';
-// import { runDirectChat } from './chat-direct';
-// import { withChatDeadline } from './chat-deadline';
-// import { isRateLimitError, chatErrorDetails } from './chat.errors';
-// import type { CreateChatDto } from './dto/create-chat.dto';
-// import type { ChatState, ChatProgress } from './chat.interface';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PinoLogger } from 'nestjs-pino';
+import { Observable } from 'rxjs';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { ChatHistoryStatus, type Prisma } from '../../generated/prisma/client';
+import type {
+  ChatHistoryContext,
+  PreparedChat,
+  ChatSource,
+  SendChatDTO,
+  SendChatDoneDTO,
+  SendChatEvent,
+} from './chat.interface';
+import { RagService } from './chat-retrieval';
 
-// @Injectable()
-// export class ChatService {
-//   private readonly graph: ReturnType<typeof buildChatGraph>;
+@Injectable()
+export class ChatService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly rag: RagService,
+    private readonly config: ConfigService,
+    private readonly logger: PinoLogger,
+  ) {
+    this.logger.setContext(ChatService.name);
+  }
 
-//   constructor(
-//     private readonly repository: ChatRepository,
-//     private readonly vectors: VectorService,
-//     private readonly model: ChatModelService,
-//     private readonly logger: PinoLogger,
-//     private readonly config: ConfigService,
-//   ) {
-//     this.logger.setContext(ChatService.name);
-//     // Compile once; every invocation carries its own isolated state.
-//     this.graph = buildChatGraph(
-//       model,
-//       (userId, ids, query) => traceChatOperation(
-//         this.logger,
-//         {
-//           operation: 'retrieve',
-//           documentCount: ids.length,
-//           queryCharacters: query.length,
-//         },
-//         () => vectors.search(
-//           userId,
-//           ids,
-//           query,
-//         ),
-//       ),
-//     );
-//   }
+  private async prepare(
+    userId: string,
+    body: SendChatDTO,
+  ): Promise<PreparedChat> {
+    const model = this.config.getOrThrow<string>('GROQ_CHAT_MODEL');
 
-//   async create(
-//     userId: string,
-//     body: CreateChatDto,
-//     onProgress?: (progress: ChatProgress) => void,
-//     signal?: AbortSignal,
-//     onToken?: (text: string) => void,
-//   ) {
-//     const ids = [...new Set(body.document_ids)];
+    // Validate Document mode
+    if (body.answerMode === 'document_only' && !body.documentIds?.length) {
+      throw new BadRequestException(
+        'Document mode requires at least one document',
+      );
+    }
 
-//     const mode = body.mode ?? 'quick';
+    return this.prisma.$transaction(async (tx) => {
+      let session: {
+        id: string;
+        activeLeafMessageId: string | null;
+      };
 
-//     const { sessionId, parent, history } = await traceChatOperation(
-//       this.logger,
-//       {
-//         operation: 'load_context',
-//         documentCount: ids.length,
-//       },
-//       () => this.repository.prepare(
-//         userId,
-//         ids,
-//         body.session_id,
-//         mode,
-//       ),
-//     );
+      // Validate session
+      if (body.sessionId) {
+        // Lock session
+        const [locked] = await tx.$queryRaw<(typeof session)[]>`
+          SELECT id, active_leaf_message_id AS "activeLeafMessageId"
+          FROM chat_session
+          WHERE id = ${body.sessionId}::uuid
+            AND user_id = ${userId}::uuid
+            AND deleted_at IS NULL
+          FOR UPDATE
+        `;
 
-//     const generationSignal = signal
-//       ? AbortSignal.any([
-//           signal,
-//           AbortSignal.timeout(110_000),
-//         ])
-//       : AbortSignal.timeout(110_000);
+        // Check if session exists
+        if (!locked) {
+          throw new NotFoundException('Chat session not found');
+        }
 
-//     let result: ChatState = {
-//       question: body.question,
-//       standaloneQuestion: body.question,
-//       query: body.question,
-//       userId,
-//       documentIds: ids,
-//       history,
-//       chunks: [],
-//       attempts: 0,
-//       enough: false,
-//       answer: '',
-//       sources: [],
-//     };
+        session = locked;
+      } else {
+        // Create new session
+        session = await tx.chatSession.create({
+          data: {
+            userId,
+            title: body.question.slice(0, 100),
+            answerMode: body.answerMode,
+          },
+          select: {
+            id: true,
+            activeLeafMessageId: true,
+          },
+        });
+      }
 
-//     let stage: ChatProgress['stage'] = 'preparing';
+      // Check if chat generation already in progress
+      if (session.activeLeafMessageId) {
+        // Check if chat generation already in progress
+        const active = await tx.chatHistory.findUnique({
+          where: { id: session.activeLeafMessageId },
+          select: { status: true },
+        });
 
-//     const reportProgress = (progress: ChatProgress) => {
-//       stage = progress.stage;
-//       this.logger.trace(
-//         {
-//           event: 'stage_started',
-//           stage,
-//           sessionId,
-//           attempt: progress.attempt,
-//           chunks: result.chunks.length,
-//           enough: result.enough,
-//         },
-//         'Chat progress',
-//       );
-//       onProgress?.(progress);
-//     };
+        // Throw if chat generation already in progress
+        if (active?.status === ChatHistoryStatus.STREAMING) {
+          throw new ConflictException('Chat generation already in progress');
+        }
+      }
 
-//     await chatRequestContext.run(
-//       {
-//         sessionId,
-//         turnId: randomUUID(),
-//         mode,
-//         onToken,
-//       },
-//       async () => {
-//         try {
-//           generationSignal.throwIfAborted();
-//           reportProgress(
-//             {
-//               stage: 'preparing',
-//               message: 'Memahami pertanyaan dan konteks percakapan.',
-//             },
-//           );
+      // Synchronize documents w session document
+      const documentIds = body.documentIds ?? [];
 
-//           if (mode !== 'ultra') {
-//             result = await withChatDeadline(
-//               (callSignal) => runDirectChat(
-//                 result,
-//                 mode,
-//                 this.model,
-//                 (user, documents, query, limit) => traceChatOperation(
-//                   this.logger,
-//                   {
-//                     operation: 'retrieve',
-//                     mode,
-//                     documentCount: documents.length,
-//                     queryCharacters: query.length,
-//                     limit,
-//                   },
-//                   () => this.vectors.search(
-//                     user,
-//                     documents,
-//                     query,
-//                     limit,
-//                   ),
-//                 ),
-//                 reportProgress,
-//                 callSignal,
-//               ),
-//               generationSignal,
-//               110_000,
-//             );
-//           } else {
-//             const updates = await this.graph.stream(
-//               result,
-//               {
-//                 streamMode: 'updates',
-//                 recursionLimit: 16,
-//                 signal: generationSignal,
-//               },
-//             );
+      if (documentIds.length) {
+        await tx.sessionDocument.createMany({
+          data: documentIds.map((documentId) => ({
+            documentId,
+            sessionId: session.id,
+          })),
+          skipDuplicates: true,
+        });
+      }
 
-//             for await (const update of updates) {
-//               for (const [
-//                 node,
-//                 state,
-//               ] of Object.entries(update)) {
-//                 result = {
-//                   ...result,
-//                   ...state,
-//                 };
+      // Get history for context
+      const history: ChatHistoryContext[] = session.activeLeafMessageId
+        ? await tx.$queryRaw<ChatHistoryContext[]>`
+              WITH RECURSIVE ancestors AS (
+                SELECT
+                  id, parent_message_id, role,
+                  content, status, 0 AS depth
+                FROM chat_history
+                WHERE id = ${session.activeLeafMessageId}::uuid
+                  AND session_id = ${session.id}::uuid
 
-//                 if (node === 'prepare') {
-//                   reportProgress(
-//                     {
-//                       stage: 'searching',
-//                       message: 'Mencari informasi di dokumen.',
-//                       attempt: 1,
-//                     },
-//                   );
-//                 } else if (node === 'search') {
-//                   reportProgress(result.chunks.length
-//                     ? {
-//                         stage: 'evaluating',
-//                         message: 'Memeriksa kecukupan informasi.',
-//                         attempt: result.attempts,
-//                       }
-//                     : {
-//                         stage: 'answering',
-//                         message: 'Menyiapkan jawaban dari hasil pencarian.',
-//                       });
-//                 } else if (node === 'evaluate') {
-//                   reportProgress(result.enough || result.attempts >= 3
-//                     ? {
-//                         stage: 'answering',
-//                         message: 'Menyusun jawaban dan sumber.',
-//                       }
-//                     : {
-//                         stage: 'searching',
-//                         message: 'Mencari informasi tambahan.',
-//                         attempt: result.attempts + 1,
-//                       });
-//                 }
-//               }
-//             }
-//           }
+                UNION ALL
 
-//           generationSignal.throwIfAborted();
-//         } catch (error) {
-//           this.logger.error(
-//             {
-//               errorType: error instanceof Error ? error.name : 'Unknown',
-//               stage,
-//               mode,
-//               searchAttempts: result.attempts,
-//               chatModel: this.config.get(
-//                 'GEMINI_CHAT_MODEL',
-//                 'gemini-3.5-flash',
-//               ),
-//               embeddingModel: this.config.get(
-//                 'GEMINI_EMBEDDING_MODEL',
-//                 'gemini-embedding-001',
-//               ),
-//               errors: chatErrorDetails(
-//                 error,
-//                 this.config.get<string>(
-//                   'GEMINI_API_KEY',
-//                 ),
-//               ),
-//             },
-//             'Chat generation failed',
-//           );
+                SELECT
+                  h.id, h.parent_message_id, h.role,
+                  h.content, h.status, a.depth + 1
+                FROM chat_history h
+                JOIN ancestors a
+                  ON h.id = a.parent_message_id
+                WHERE h.session_id = ${session.id}::uuid
+                  AND a.depth < 9
+              )
+              SELECT role, content
+              FROM ancestors
+              WHERE status = 'completed'
+                AND role IN ('user', 'assistant')
+              ORDER BY depth DESC
+            `
+        : [];
 
-//           if ((error instanceof Error && error.name === 'TimeoutError')
-//             || generationSignal.reason?.name === 'TimeoutError') {
-//             throw new HttpException(
-//               'Layanan AI terlalu lama merespons. Silakan coba lagi.',
-//               HttpStatus.GATEWAY_TIMEOUT,
-//             );
-//           }
+      const userMessage = await tx.chatHistory.create({
+        data: {
+          sessionId: session.id,
+          parentMessageId: session.activeLeafMessageId,
+          role: 'user',
+          content: body.question,
+          answerMode: body.answerMode,
+          status: ChatHistoryStatus.COMPLETED,
+        },
+        select: { id: true },
+      });
 
-//           if (isRateLimitError(error)) {
-//             throw new HttpException(
-//               'Batas pemakaian atau kuota layanan AI tercapai. Coba lagi nanti; jika berlanjut, periksa kuota provider.',
-//               HttpStatus.TOO_MANY_REQUESTS,
-//             );
-//           }
+      const assistant = await tx.chatHistory.create({
+        data: {
+          sessionId: session.id,
+          parentMessageId: userMessage.id,
+          role: 'assistant',
+          content: '',
+          answerMode: body.answerMode,
+          status: ChatHistoryStatus.STREAMING,
+        },
+        select: { id: true },
+      });
 
-//           throw new ServiceUnavailableException(
-//             'Chat generation failed; try again later',
-//           );
-//         }
-//       },
-//     );
+      const completion = await tx.completion.create({
+        data: {
+          chatHistoryId: assistant.id,
+          model,
+          provider: 'groq',
+          status: ChatHistoryStatus.STREAMING,
+        },
+        select: { id: true },
+      });
 
-//     reportProgress({
-//       stage: 'saving',
-//       message: 'Menyimpan percakapan.',
-//     });
-//     signal?.throwIfAborted();
+      await tx.chatSession.update({
+        where: { id: session.id },
+        data: {
+          answerMode: body.answerMode,
+          activeLeafMessageId: assistant.id,
+          lastMessageAt: new Date(),
+        },
+        select: { id: true },
+      });
 
-//     // Model calls run outside the transaction; save checks for concurrent changes.
-//     const messageId = await traceChatOperation(
-//       this.logger,
-//       {
-//         operation: 'save',
-//         sessionId,
-//       },
-//       () => this.repository.save({
-//         userId,
-//         documentIds: ids,
-//         question: body.question,
-//         existingSessionId: body.session_id,
-//         sessionId,
-//         parent,
-//         result,
-//       }),
-//     );
+      return {
+        sessionId: session.id,
+        assistantId: assistant.id,
+        completionId: completion.id,
+        documentIds,
+        history,
+        model,
+      };
+    });
+  }
 
-//     return {
-//       data: {
-//         mode,
-//         session_id: sessionId,
-//         message_id: messageId,
-//         answer: result.answer,
-//         sources: result.sources,
-//         search_attempts: result.attempts,
-//         context_sufficient: mode === 'ultra' || !result.chunks.length ? result.enough : null,
-//       },
-//     };
-//   }
-// }
+  async send(
+    userId: string,
+    body: SendChatDTO,
+  ): Promise<Observable<SendChatEvent>> {
+    // Validasi dan persistence dilakukan sebelum SSE dimulai.
+    // Kalau gagal, Nest masih bisa mengembalikan HTTP 4xx.
+    const prepared = await this.prepare(userId, body);
+
+    return new Observable<SendChatEvent>((subscriber) => {
+      const abort = new AbortController();
+      const startedAt = Date.now();
+
+      let answer = '';
+      let sources: ChatSource[] = [];
+      let firstTokenMs: number | null = null;
+
+      subscriber.next({
+        type: 'started',
+        data: {
+          id: prepared.assistantId,
+          sessionId: prepared.sessionId,
+          status: 'streaming',
+        },
+      });
+
+      void (async () => {
+        try {
+          const result = await this.rag.run({
+            userId,
+            question: body.question,
+            documentIds: prepared.documentIds,
+            answerMode: body.answerMode,
+            history: prepared.history,
+            model: prepared.model,
+            signal: abort.signal,
+
+            onSources: (value) => {
+              sources = value;
+
+              if (!subscriber.closed) {
+                subscriber.next({
+                  type: 'sources',
+                  data: { sources: value },
+                });
+              }
+            },
+
+            onToken: (content) => {
+              firstTokenMs ??= Date.now() - startedAt;
+              answer += content;
+
+              if (!subscriber.closed) {
+                subscriber.next({
+                  type: 'token',
+                  data: { content },
+                });
+              }
+            },
+          });
+
+          abort.signal.throwIfAborted();
+
+          await this.prisma.$transaction([
+            this.prisma.chatHistory.update({
+              where: { id: prepared.assistantId },
+              data: {
+                status: ChatHistoryStatus.COMPLETED,
+                content: answer,
+                sources: sources as unknown as Prisma.InputJsonValue,
+              },
+            }),
+            this.prisma.completion.update({
+              where: { id: prepared.completionId },
+              data: {
+                status: ChatHistoryStatus.COMPLETED,
+                inputTokens: result.inputTokens,
+                outputTokens: result.outputTokens,
+                totalTokens: result.totalTokens,
+                latencyMs: Date.now() - startedAt,
+                timeToFirstTokenMs: firstTokenMs,
+                completedAt: new Date(),
+              },
+            }),
+          ]);
+
+          const done: SendChatDoneDTO = {
+            id: prepared.assistantId,
+            sessionId: prepared.sessionId,
+            status: 'completed',
+            content: answer,
+            sources,
+            mode: body.mode,
+          };
+
+          if (!subscriber.closed) {
+            subscriber.next({
+              type: 'done',
+              data: done,
+            });
+            subscriber.complete();
+          }
+        } catch (error) {
+          const status = abort.signal.aborted
+            ? ChatHistoryStatus.CANCELLED
+            : ChatHistoryStatus.FAILED;
+
+          this.logger.error(
+            { err: error, messageId: prepared.assistantId },
+            'Chat generation failed',
+          );
+
+          try {
+            await this.prisma.$transaction([
+              this.prisma.chatHistory.update({
+                where: { id: prepared.assistantId },
+                data: {
+                  status,
+                  content: answer,
+                  sources: sources as unknown as Prisma.InputJsonValue,
+                },
+              }),
+              this.prisma.completion.update({
+                where: { id: prepared.completionId },
+                data: {
+                  status,
+                  errorMessage:
+                    error instanceof Error
+                      ? error.message.slice(0, 2000)
+                      : 'Unknown error',
+                  latencyMs: Date.now() - startedAt,
+                  timeToFirstTokenMs: firstTokenMs,
+                  completedAt: new Date(),
+                },
+              }),
+            ]);
+          } catch (persistError) {
+            this.logger.error(
+              { err: persistError },
+              'Failed to persist chat failure',
+            );
+          }
+
+          if (!subscriber.closed) {
+            subscriber.next({
+              type: 'error',
+              data: {
+                messageId: prepared.assistantId,
+                message: 'Chat generation failed',
+              },
+            });
+            subscriber.complete();
+          }
+        }
+      })();
+
+      // NestJS unsubscribe ketika SSE selesai/client disconnect.
+      return () => abort.abort();
+    });
+  }
+}

@@ -1,65 +1,92 @@
-// import type { Chunk, Source } from '../documents/documents.interface';
-// import type { ChatMode } from './chat-mode';
-// export interface ChatState {
-//   question: string;
-//   standaloneQuestion: string;
-//   query: string;
-//   userId: string;
-//   documentIds: string[];
-//   history: { role: string;
-//     content: string; }[];
-//   chunks: Chunk[];
-//   attempts: number;
-//   enough: boolean;
-//   answer: string;
-//   sources: Source[];
-// }
-// export interface ChatEngine {
-//   rewrite(
-//     question: string,
-//     history: ChatState['history'],
-//     signal?: AbortSignal,
-//   ): Promise<string>;
-//   evaluate(
-//     question: string,
-//     chunks: Chunk[],
-//     signal?: AbortSignal,
-//   ): Promise<{ enough: boolean;
-//     next_query: string; }>;
-//   answer(
-//     question: string,
-//     chunks: Chunk[],
-//     enough: boolean | null,
-//     signal?: AbortSignal,
-//     options?: { history: ChatState['history'];
-//       compact: boolean; },
-//   ): Promise<{ answer: string;
-//     source_ids: number[]; }>;
-// }
+import { createZodDto } from 'nestjs-zod';
+import { z } from 'zod';
+import type { MessageEvent } from '@nestjs/common';
+import type { DocumentChunk } from '../../common/milvus/milvus.interface';
+import {
+  sendChatSchema,
+  chatHistorySchema,
+  completionSchema,
+} from './chat.validation';
 
-// export interface ChatProgress {
-//   stage: 'preparing' | 'searching' | 'evaluating' | 'answering' | 'saving';
-//   message: string;
-//   attempt?: number;
-// }
+export class CompletionDTO
+  extends createZodDto(completionSchema)
+  implements z.infer<typeof completionSchema> {}
 
-// export interface ChatResult {
-//   mode: ChatMode;
-//   session_id: string;
-//   message_id: string;
-//   answer: string;
-//   sources: Source[];
-//   search_attempts: number;
-//   context_sufficient: boolean | null;
-// }
+export class SendChatDTO
+  extends createZodDto(sendChatSchema)
+  implements z.infer<typeof sendChatSchema> {}
 
-// export type ChatStreamEvent
-//   = | { type: 'progress';
-//     data: ChatProgress; }
-//     | { type: 'token';
-//       data: { text: string }; }
-//       | { type: 'done';
-//         data: ChatResult; }
-//         | { type: 'error';
-//           data: { status_code: number;
-//             message: string; }; };
+export class ChatHistoryDTO
+  extends createZodDto(chatHistorySchema)
+  implements z.infer<typeof chatHistorySchema> {}
+
+export type ChatHistoryContext = Pick<ChatHistoryDTO, 'role' | 'content'>;
+
+export type ChatMessageState = Pick<
+  ChatHistoryDTO,
+  'id' | 'sessionId' | 'status'
+>;
+
+export type ChatTokenDTO = Pick<ChatHistoryDTO, 'content'>;
+
+export interface ChatSource {
+  documentId: DocumentChunk['document_id'];
+  chunkId: DocumentChunk['id'];
+  pageNumber: DocumentChunk['page_number'];
+  filename: string | null;
+}
+
+export type SendChatDoneDTO = Pick<
+  ChatHistoryDTO,
+  'id' | 'sessionId' | 'content'
+> & {
+  status: 'completed';
+  sources: ChatSource[];
+  mode: SendChatDTO['mode'];
+};
+
+export type SendChatStartedDTO = Omit<ChatMessageState, 'status'> & {
+  status: 'streaming';
+};
+
+export interface SendChatSourcesDTO {
+  sources: ChatSource[];
+}
+
+export interface SendChatErrorDTO {
+  messageId: ChatHistoryDTO['id'];
+  message: string;
+}
+
+export type SendChatEvent = Omit<MessageEvent, 'type' | 'data'> & (
+  | { type: 'started'; data: SendChatStartedDTO }
+  | { type: 'sources'; data: SendChatSourcesDTO }
+  | { type: 'token'; data: ChatTokenDTO }
+  | { type: 'done'; data: SendChatDoneDTO }
+  | { type: 'error'; data: SendChatErrorDTO }
+);
+
+export type RagInput = Pick<SendChatDTO, 'question' | 'answerMode'> &
+  Pick<CompletionDTO, 'model'> & {
+    userId: string;
+    documentIds: NonNullable<SendChatDTO['documentIds']>;
+    history: ChatHistoryContext[];
+    signal: AbortSignal;
+    onSources: (sources: ChatSource[]) => void;
+    onToken: (content: ChatHistoryDTO['content']) => void;
+  };
+
+export type RagResult = Pick<
+  CompletionDTO,
+  'inputTokens' | 'outputTokens' | 'totalTokens'
+>;
+
+export type ChatEvidence = Pick<ChatHistoryDTO, 'content'> & {
+  source: ChatSource;
+};
+
+export type PreparedChat = Pick<RagInput, 'documentIds' | 'history' | 'model'> &
+  Pick<ChatHistoryDTO, 'sessionId'> & {
+    assistantId: ChatHistoryDTO['id'];
+    completionId: CompletionDTO['id'];
+  };

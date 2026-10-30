@@ -7,15 +7,14 @@ const LoginSchema = userSchema
     username: true,
   })
   .extend({
-    password: z
-      .string()
-      .min(8)
-      .max(100),
+    username: userSchema.shape.username.unwrap(),
+    password: z.string().min(8).max(100),
   });
 
 class LoginDto
   extends createZodDto(LoginSchema)
-  implements z.infer<typeof LoginSchema> {
+  implements z.infer<typeof LoginSchema>
+{
   constructor() {
     super();
   }

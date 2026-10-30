@@ -1,17 +1,14 @@
-// import { Module } from '@nestjs/common';
-// import { DocumentsModule } from '../documents/documents.module';
-// import { ChatController } from './chat.controller';
-// import { ChatService } from './chat.service';
-// import { ChatRepository } from './chat.repository';
-// import { ChatModelService } from './chat-model.service';
+import { Module } from '@nestjs/common';
+import { AiModule } from '../../common/ai/ai.module';
+import { MilvusModule } from '../../common/milvus/milvus.module';
+import { PrismaModule } from '../../common/prisma/prisma.module';
+import { ChatController } from './chat.controller';
+import { RagService } from './chat-retrieval';
+import { ChatService } from './chat.service';
 
-// @Module({
-//   imports: [DocumentsModule],
-//   controllers: [ChatController],
-//   providers: [
-//     ChatService,
-//     ChatRepository,
-//     ChatModelService,
-//   ],
-// })
-// export class ChatModule {}
+@Module({
+  imports: [PrismaModule, AiModule, MilvusModule],
+  controllers: [ChatController],
+  providers: [ChatService, RagService],
+})
+export class ChatModule {}
