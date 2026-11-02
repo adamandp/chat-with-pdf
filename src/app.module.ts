@@ -4,6 +4,7 @@ import { ChatSessionModule } from './model/chat-session/chat-session.module';
 import { AuthModule } from './model/auth/auth.module';
 import { HealthModule } from './model/health/health.module';
 import { DocumentsModule } from './model/documents/documents.module';
+import { DocumentUploadModule } from './model/document-upload/document-upload.module';
 import { ChatModule } from './model/chat/chat.module';
 
 @Module({
@@ -13,6 +14,7 @@ import { ChatModule } from './model/chat/chat.module';
     ChatSessionModule,
     AuthModule,
     DocumentsModule,
+    DocumentUploadModule,
     ChatModule,
   ],
 })

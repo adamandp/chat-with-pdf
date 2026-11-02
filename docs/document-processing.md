@@ -1,101 +1,30 @@
 # Document upload and processing
 
-All document endpoints require `Authorization: Bearer <accessToken>` and check ownership.
+Current implementation: `DocumentUploadModule`. All Nest routes require the user's Bearer access token. The direct upload to MinIO uses the signed URL instead.
 
-1. `POST /documents/presigned-url`, JSON body `{ "fileName": "example.pdf" }`.
-   Returns `201` with `data.document_id`, `data.upload_url`, and `data.expires_in` (900 seconds).
-2. `PUT <upload_url>` with the PDF bytes as the binary request body. No backend Bearer token.
-3. `POST /documents/<document_id>/process`, no body. Returns `202` with
-   `data: { document_id, status: "QUEUED", progress: 0 }` (or `PROCESSING` for an already running job).
-4. `GET /documents/<document_id>/progress`, with `Accept: text/event-stream`.
-   Can connect before or after starting the process. Each connection sends the persisted document status and current BullMQ job progress immediately, then forwards live queue events. Heartbeats every 15 seconds indicate the SSE connection is alive, not that the worker is advancing.
-   The worker and queue listener must both be registered as providers in DocumentsModule; registering the queue alone does not start a consumer.
+1. `POST /document-upload/presigned-url` with `{ "fileName": "example.pdf" }`. Creates a `PENDING_UPLOAD` document row and returns `document_id`, `upload_url` and `expires_in` (900 seconds).
+2. `PUT <upload_url>` directly to MinIO with PDF bytes. The object key is the document UUID.
+3. `POST /document-upload/:id/process` with no body. Updates the record to `QUEUED` and adds a BullMQ job (`jobId = documentId`).
+4. `GET /document-upload/:id/progress` with `Accept: text/event-stream`. The endpoint returns an initial status/job snapshot followed by queue events; heartbeat every 15 seconds. `READY` or `FAILED` closes the stream.
+5. Once `READY`, the document is returned by `GET /documents`. The document list deliberately excludes all other statuses.
 
-Example SSE messages (each event ends with a blank line):
+## Worker stages
 
-```text
-data: {"document_id":"<uuid>","progress":10,"status":"PROCESSING"}
+The processor downloads the PDF from MinIO, extracts page text with PDF.js, splits text with chunk size 1000 and overlap 200, embeds batches of 50 chunks using Gemini and inserts them into Milvus `document_chunks`. It then updates PostgreSQL `pageCount`, `chunkCount` and status `READY`.
 
-data: {"document_id":"<uuid>","progress":95,"status":"PROCESSING"}
+Progress steps: 5 (start), 15 (download), 40 (extraction), 60 (chunking), 70 (enrichment), 90 (embedding), 95 (vector insert), 100 (metadata saved).
 
-data: {"document_id":"<uuid>","progress":100,"status":"READY"}
-```
+`DocumentsListener` handles BullMQ `waiting`, `active`, `progress`, `completed` and `failed` events and forwards status to the upload service's SSE stream. On failure the listener persists `FAILED` and the error message.
 
-Progress marks completed stages, not elapsed time: worker start 5, download 15,
-PDF extraction 40, chunking 60, enrichment 70, embedding 90, vector storage 95, metadata 100.
-`READY` is emitted only after storage completes. `FAILED` includes a safe `error` message;
-PDFs without text fail with an OCR-required message. Streams close on READY/FAILED and
-send `event: heartbeat` with `{}` every 15 seconds while idle.
+## Source files
 
-In Postman, open the progress GET request with the same Bearer token. In a browser,
-use fetch-based SSE to send the Authorization header; native EventSource does not
-support setting this header. Disconnecting the stream does not cancel the worker.
+- `src/model/document-upload/document-upload.module.ts` — queue/worker/listener registration.
+- `src/model/document-upload/document-upload.controller.ts` — upload endpoints.
+- `src/model/document-upload/document-upload.service.ts` — presign, enqueue and progress SSE.
+- `src/model/document-upload/queue/documents.processor.ts` — PDF processing.
+- `src/model/document-upload/queue/document-progress.service.ts` — queue status events.
+- `src/common/queue/queue.module.ts` — shared BullMQ configuration.
 
-`GET /documents/<document_id>` returns persistent metadata and a 15-minute `download_url`.
-`fileSize` is a decimal string (or null) because PostgreSQL stores it as BigInt.
-File size, MIME type and SHA-256 are calculated from the uploaded bytes; page count
-and chunk count are filled during processing. File names come from the presign request.
+Retry has a route and service TODO only; no retry logic is implemented. The existing process path does not validate the MinIO object's size, MIME type, hash or status transition before enqueueing.
 
-Repeated process calls reuse one job per document. Failed documents may be retried with
-the same POST after failure; retries clear partial Milvus chunks before rebuilding.
-READY/DELETING/DELETED return 409; missing, deleted or another user's document returns
-404; malformed IDs return 400; unavailable Redis returns 503. The default worker runs
-one job at a time per backend instance. QueueEvents forwards Redis events between instances.
-
-## Local setup
-
-Use the existing Redis instance. Default `REDIS_URL=redis://localhost:6379`;
-`rediss://` and password/database URLs are supported. Optional `QUEUE_PREFIX`
-is `chat-pdf` by default and must match across API/worker instances.
-Use Redis persistence and the `noeviction` memory policy for durable job storage.
-Run `bun install` and `bun run start:dev`. No new database migration is needed for processing.
-
-## Integration verification
-
-Start the HTTP stand-ins (no paid API calls):
-
-```sh
-postman simulation run postman/simulations/document-processing.sim.yaml --port 14900 --output ndjson --no-history
-```
-
-In another terminal:
-
-```sh
-bun run build
-bun run test/integration/document-processing.cjs
-```
-
-Tests use the configured local PostgreSQL and Redis, create a unique user and queue
-prefix, then remove only their own records/jobs. MinIO object HTTP and Gemini embedding
-HTTP are simulated. Milvus gRPC writes use an in-memory adapter: these tests do not
-establish compatibility with a live Milvus server or the live Gemini model.
-See `postman/simulations/document-processing.context.md` for run observations.
-
-References: [BullMQ events](https://docs.bullmq.io/guide/events/),
-[Gemini batch embedding contract](https://ai.google.dev/api/embeddings#method:-models.batchembedcontents).
-
-Shared Redis configuration lives in `src/common/queue` using `BullModule.forRootAsync()`.
-DocumentsModule registers its queue with `BullModule.registerQueue()`.
-DocumentQueueService injects it with `@InjectQueue()` and handles enqueue/retry.
-DocumentWorkerService uses `@Processor()` + `WorkerHost` for PDF processing.
-DocumentProgressService uses `@QueueEventsListener()` + `@OnQueueEvent()` for SSE.
-Nest's BullMQ integration creates and closes the queue, workers and event listeners.
-
-Read the code in this order:
-1. `src/common/queue/queue.module.ts`: shared queue setup.
-2. `src/model/documents/documents.module.ts`: register the document queue.
-3. `src/model/documents/queue/document-queue.service.ts`: add a job.
-4. `src/model/documents/processing/document-worker.service.ts`: STEP 1–7 process the PDF.
-5. `src/model/documents/queue/document-progress.service.ts`: forward progress to clients.
-
-## Shared connection lifecycle
-
-`common/queue/queue-connection.service.ts` discovers all registered BullMQ queues,
-workers and event listeners once on bootstrap. It attaches connection error logging
-and drains active workers before Prisma/storage shutdown. Nest still creates/closes
-all BullMQ connections; a feature does not need connection initialization or shutdown hooks.
-The `run(queue, operation)` method waits up to five seconds for the existing connection
-before executing producer operations or loading an SSE snapshot. It does not create
-connections. The deadline applies to readiness, not to the full processing job.
-The integration suite also registers a second queue and verifies active work finishes
-on shutdown without lifecycle code in that feature's worker.
+See the [current Document Upload API](api/document-upload.md) and [Documents API](api/documents.md) for frontend contracts. Older pipeline documents in `docs/` may describe removed implementations and are not the active API specification.

@@ -1,13 +1,13 @@
 import {
-  Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
   Query,
-  Sse,
-  MessageEvent,
 } from '@nestjs/common';
 import { CurrentUser } from '../../decorators/current-user.decorator';
 import { DocumentsService } from './documents.service';
@@ -15,14 +15,11 @@ import type { JwtPayload } from '../session/session.interface';
 import { WebResponse } from '../../common/common.interface';
 import { PaginationDto } from '../../common/common.dto';
 import {
-  DocumentProcessDTO,
   DocumentFindOneDTO,
   DocumentFindAllDTO,
-  PresignUrlDTO,
+  DocumentMutationDTO,
 } from './documents.interface';
-import { CreatePresignUrlDTO } from './dto/presign.dto';
 import { PinoLogger } from 'nestjs-pino';
-import { Observable } from 'rxjs';
 
 @Controller('documents')
 export class DocumentsController {
@@ -33,20 +30,20 @@ export class DocumentsController {
     this.logger.setContext(DocumentsController.name);
   }
 
-  @Post('presigned-url')
-  presign(
-    @CurrentUser() user: JwtPayload,
-    @Body() body: CreatePresignUrlDTO,
-  ): Promise<WebResponse<PresignUrlDTO>> {
-    return this.documents.createPresignUrl(user.sub, body);
-  }
-
   @Get()
   findAll(
     @CurrentUser() user: JwtPayload,
     @Query() pagination: PaginationDto,
   ): Promise<WebResponse<DocumentFindAllDTO>> {
     return this.documents.findAll(user.sub, pagination);
+  }
+
+  @Get('deleted')
+  findDeleted(
+    @CurrentUser() user: JwtPayload,
+    @Query() pagination: PaginationDto,
+  ): Promise<WebResponse<DocumentFindAllDTO>> {
+    return this.documents.findDeleted(user.sub, pagination);
   }
 
   @Get(':id')
@@ -57,27 +54,28 @@ export class DocumentsController {
     return this.documents.findOne(user.sub, id);
   }
 
-  @Post(':id/process')
-  process(
+  @Delete(':id')
+  remove(
     @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
-  ): Promise<WebResponse<DocumentProcessDTO>> {
-    return this.documents.documentProcess(user.sub, id);
+  ): Promise<WebResponse<DocumentMutationDTO>> {
+    return this.documents.remove(user.sub, id);
   }
 
-  // @Sse(':id/progress')
-  // progress(
-  //   @CurrentUser() user: JwtPayload,
-  //   @Param('id', new ParseUUIDPipe()) id: string,
-  // ): Promise<Observable<MessageEvent>> {
-  //   return this.documents.progress(user.sub, id);
-  // }
-
-  @Sse(':id/progress')
-  progress(
+  @Post(':id/restore')
+  @HttpCode(HttpStatus.OK)
+  restore(
     @CurrentUser() user: JwtPayload,
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<Observable<MessageEvent>> {
-    return this.documents.progress(user.sub, id);
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<WebResponse<DocumentMutationDTO>> {
+    return this.documents.restore(user.sub, id);
+  }
+
+  @Delete(':id/permanent')
+  removePermanently(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ): Promise<WebResponse<DocumentMutationDTO>> {
+    return this.documents.removePermanently(user.sub, id);
   }
 }

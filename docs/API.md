@@ -9,9 +9,10 @@
 | Authentication & token sessions | 6 | [authentication.md](api/authentication.md) |
 | Chat sessions | 7 | [chat-sessions.md](api/chat-sessions.md) |
 | AI chat | 1 | [chat.md](api/chat.md) |
-| Documents | 5 | [documents.md](api/documents.md) |
+| Document Upload | 4 | [document-upload.md](api/document-upload.md) |
+| Documents | 6 | [documents.md](api/documents.md) |
 | Health | 5 | [health.md](api/health.md) |
-| **Total NestJS routes** | **24** | |
+| **Total NestJS routes** | **29** | |
 
 The direct MinIO signed `PUT` described in the documents guide is **not** a NestJS endpoint.
 
@@ -67,21 +68,22 @@ List endpoints accept `?page=1&limit=10`. Both are integers from 1 through 100; 
 
 **Authentication:** register (optional) → login (JSON access token + refresh cookie) → protected requests → refresh as needed → logout or logout-all.
 
-**PDF upload:** `POST /documents/presigned-url` → direct MinIO `PUT` → `POST /documents/:id/process` → `GET /documents/:id/progress` → `POST /chat/send`.
+**PDF upload:** `POST /document-upload/presigned-url` → direct MinIO `PUT` → `POST /document-upload/:id/process` → `GET /document-upload/:id/progress` → `POST /chat/send`.
 
-**SSE:** `POST /chat/send` emits `started`, `sources`, `token`, `done`, `error`; use fetch streaming because native `EventSource` cannot POST. Document progress uses `GET` SSE events `message` and `heartbeat`.
+**SSE:** `POST /chat/send` emits `started`, `sources`, `token`, `done`, `error`; use fetch streaming because native `EventSource` cannot POST. Document upload progress uses `GET` SSE events `message` and `heartbeat`.
 
 ## Versioning and legacy documents
 
 These newly authored module pages describe current controllers / Zod DTOs / services / Prisma, including known defects. Legacy `docs/chat.md`, `docs/chat.openapi.json`, `docs/document-api.yaml`, and `docs/documents.openapi.json` still describe **older contracts** (e.g. `POST /chat`, snake_case request fields, `/presigned-url`). They are preserved here and should not be treated as current API truth until reconciled.
 
-No missing endpoint is silently represented as implemented. Notable gaps include multi-session auth correctness, document upload status validation and delete/trash operations, and message regenerate/fork/feedback. See each module's Known Issues.
+Retry is explicitly a TODO stub. Notable remaining gaps include multi-session auth correctness, document upload status validation, and message regenerate/fork/feedback. See each module page for details.
 
 ## Source paths audited
 
 - `src/model/auth/*` and `src/model/session/*`
 - `src/model/chat-session/*`
 - `src/model/chat/*`
-- `src/model/documents/*` including BullMQ processor/listener
+- `src/model/document-upload/*` including BullMQ processor/listener
+- `src/model/documents/*` for document management
 - `src/model/health/*`
 - `src/common/common.dto.ts`, `src/common/common.interface.ts`, `src/main.ts`, `prisma/schema.prisma`

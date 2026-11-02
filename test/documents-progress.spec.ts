@@ -1,10 +1,10 @@
 import { createRequire } from 'node:module';
 
 const require = createRequire(`${process.cwd()}/test/loader.cjs`);
-const { DocumentsService } = require('../dist/model/documents/documents.service');
-const { DocumentsListener } = require('../dist/model/documents/queue/document-progress.service');
-const { DocumentsModule } = require('../dist/model/documents/documents.module');
-const { DocumentsProcessor } = require('../dist/model/documents/queue/documents.processor');
+const { DocumentUploadService } = require('../dist/model/document-upload/document-upload.service');
+const { DocumentsListener } = require('../dist/model/document-upload/queue/document-progress.service');
+const { DocumentUploadModule } = require('../dist/model/document-upload/document-upload.module');
+const { DocumentsProcessor } = require('../dist/model/document-upload/queue/documents.processor');
 
 describe('document queue progress', () => {
   function setup(status = 'QUEUED', progress = 0) {
@@ -15,7 +15,7 @@ describe('document queue progress', () => {
     } };
     const logger = { setContext: vi.fn(), info: vi.fn(), error: vi.fn(), warn: vi.fn() };
     const queue = { getJob: vi.fn().mockResolvedValue({ progress }) };
-    const service = new DocumentsService(logger, prisma, {}, queue);
+    const service = new DocumentUploadService(logger, prisma, {}, queue);
     const listener = new DocumentsListener(logger, service, prisma);
     return { prisma, logger, queue, service, listener };
   }
@@ -23,7 +23,7 @@ describe('document queue progress', () => {
   afterEach(() => vi.useRealTimers());
 
   it('registers both the worker and queue event consumer', () => {
-    const providers = Reflect.getMetadata('providers', DocumentsModule);
+    const providers = Reflect.getMetadata('providers', DocumentUploadModule);
     expect(providers).toContain(DocumentsProcessor);
     expect(providers).toContain(DocumentsListener);
   });

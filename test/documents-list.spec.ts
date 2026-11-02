@@ -19,28 +19,28 @@ describe('DocumentsService.findAll', () => {
     return { service, prisma };
   }
 
-  it('scopes both the page and total to active documents owned by the user', async () => {
+  it('scopes both the page and total to ready documents owned by the user', async () => {
     const { service, prisma } = setup([
       { id: 'document-id', fileSize: 9007199254740993n },
-      { id: 'pending-document-id', fileSize: null },
+      { id: 'ready-document-id', fileSize: null },
     ], 5);
 
     const response = await service.findAll('owner-id', { page: 2, limit: 2 });
 
     expect(prisma.document.findMany).toHaveBeenCalledWith({
-      where: { userId: 'owner-id', deletedAt: null },
+      where: { userId: 'owner-id', status: 'READY', deletedAt: null },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       skip: 2,
       take: 2,
     });
     expect(prisma.document.count).toHaveBeenCalledWith({
-      where: { userId: 'owner-id', deletedAt: null },
+      where: { userId: 'owner-id', status: 'READY', deletedAt: null },
     });
     expect(response).toEqual({
       message: '📦 Documents retrieved successfully! Smooth sailing! 😎',
       data: [
         { id: 'document-id', fileSize: '9007199254740993' },
-        { id: 'pending-document-id', fileSize: null },
+        { id: 'ready-document-id', fileSize: null },
       ],
       paging: { currentPage: 2, pageSize: 2, totalItems: 5, totalPages: 3 },
     });

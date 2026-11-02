@@ -11,7 +11,7 @@ import {
   PdfExtraction,
   PdfPage,
   ProcessDocumentType,
-} from '../documents.interface';
+} from '../document-upload.interface';
 import { StorageService } from '../../../common/storage/storage.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { MilvusService } from '../../../common/milvus/milvus.service';

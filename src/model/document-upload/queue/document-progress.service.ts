@@ -5,7 +5,7 @@ import {
 } from '@nestjs/bullmq';
 import { PinoLogger } from 'nestjs-pino';
 import { DOCUMENT_QUEUE } from './documents.constants';
-import { DocumentsService } from '../documents.service';
+import { DocumentUploadService } from '../document-upload.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { DocumentStatus } from '../../../generated/prisma/enums';
 
@@ -13,7 +13,7 @@ import { DocumentStatus } from '../../../generated/prisma/enums';
 export class DocumentsListener extends QueueEventsHost {
   constructor(
     private readonly logger: PinoLogger,
-    private readonly documents: DocumentsService,
+    private readonly documents: DocumentUploadService,
     private readonly prisma: PrismaService,
   ) {
     super();
