@@ -2,7 +2,6 @@ import {
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
-  MessageEvent,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { Messages, ErrorMessage } from '../../utils/message.helper';
@@ -11,6 +10,8 @@ import { DocumentStatus } from '../../generated/prisma/enums';
 import type { WebResponse } from '../../common/common.interface';
 import type {
   DocumentProcessDTO,
+  DocumentProgressDTO,
+  DocumentProgressEvent,
   PresignUrlDTO,
   ProcessDocumentType,
 } from './document-upload.interface';
@@ -35,17 +36,21 @@ export class DocumentUploadService {
 
   private readonly progress$ = new Subject<{
     documentId: string;
-    event: MessageEvent;
+    event: DocumentProgressEvent;
   }>();
 
-  emitProgress(documentId: string, type: string, data: object): void {
+  emitProgress(
+    documentId: string,
+    type: 'message',
+    data: DocumentProgressDTO,
+  ): void {
     this.progress$.next({ documentId, event: { type, data } });
   }
 
   async progress(
     userId: string,
     documentId: string,
-  ): Promise<Observable<MessageEvent>> {
+  ): Promise<Observable<DocumentProgressEvent>> {
     const document = await this.prisma.document.findFirst({
       where: { id: documentId, userId, deletedAt: null },
       select: { id: true },
@@ -56,9 +61,9 @@ export class DocumentUploadService {
     }
 
     // Subscribe before loading the snapshot so updates during the read aren't lost.
-    return new Observable<MessageEvent>((subscriber) => {
+    return new Observable<DocumentProgressEvent>((subscriber) => {
       let loading = true;
-      const pending: MessageEvent[] = [];
+      const pending: DocumentProgressEvent[] = [];
       const updates = this.progress$.pipe(
         filter((item) => item.documentId === documentId),
         map((item) => item.event),
@@ -98,8 +103,11 @@ export class DocumentUploadService {
       };
     }).pipe(
       takeWhile((event) => {
-        const data = event.data as { status?: string };
-        return data.status !== DocumentStatus.READY && data.status !== DocumentStatus.FAILED;
+        if (event.type === 'heartbeat') return true;
+        return (
+          event.data.status !== DocumentStatus.READY &&
+          event.data.status !== DocumentStatus.FAILED
+        );
       }, true),
     );
   }

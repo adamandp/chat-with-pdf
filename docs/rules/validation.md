@@ -39,7 +39,9 @@ export class CompletionDTO
   implements z.infer<typeof completionSchema> {}
 ```
 
-Class ini dapat digunakan sebagai **tipe TypeScript** untuk properti, parameter, dan return type. `z.infer` menjaga bentuk tipe tetap sesuai schema Zod. Tidak perlu mendefinisikan interface identik secara manual.
+Class ini dapat digunakan sebagai **tipe TypeScript** untuk properti, parameter, dan return type. `z.infer` pada `implements` menjaga bentuk tipe tetap sesuai schema Zod. Tidak perlu mendefinisikan interface identik secara manual.
+
+**Jangan mengganti base DTO class dengan `export type BaseFooDto = z.infer<typeof baseFooSchema>`.** Type alias tidak memiliki metadata class untuk `ZodValidationPipe`. Untuk base DTO, gunakan pola `extends createZodDto(schema) implements z.infer<typeof schema>`, seperti `BaseChatSessionDto` di `chat-session.interface.ts`. Letakkan definisi Zod schema di `*.validation.ts` dan class DTO di `*.interface.ts` atau file `dto/` sesuai fungsinya.
 
 **Catatan penting:** memakai DTO sebagai *return type* hanya memberi pemeriksaan TypeScript. Itu **tidak otomatis menjalankan validasi Zod terhadap response**. Validasi runtime terjadi ketika schema diparse atau DTO diproses oleh validation pipe.
 
@@ -111,16 +113,43 @@ Gunakan `WebResponse<T>` untuk return type endpoint JSON sesuai pola backend:
 Promise<WebResponse<DocumentMutationDTO>>
 ```
 
+**Beri nama response type sesuai operasi**, meskipun bentuk datanya identik. Alias semantik boleh dipakai untuk memperjelas kontrak controller dan service:
+
+```ts
+export type DocumentFindAllDeletedDTO = DocumentFindAllDTO;
+
+// GET /documents/deleted
+Promise<WebResponse<DocumentFindAllDeletedDTO>>
+```
+
+Alias ini hanya untuk tipe response; tidak menggantikan DTO class yang dibutuhkan untuk validasi request.
+
 Jika bentuk response memang berbeda dari bentuk base DTO (misalnya `BigInt` diubah menjadi string, ada signed URL, atau event SSE), definisikan tipe response yang mencerminkan **data yang benar-benar dikirim**, bukan memaksakan schema entity mentah.
 
 `Pick<T>` dan `Omit<T>` TypeScript hanya mengubah **tipe**, sedangkan `.pick()` dan `.omit()` Zod menghasilkan **schema validasi runtime**. Jangan tertukar.
 
+## 7. SSE perlu event type sesuai payload asli
+
+`MessageEvent` bawaan NestJS belum menyediakan generic untuk `data`. Untuk SSE, buat tipe event khusus di `*.interface.ts` mengikuti `SendChatEvent` pada modul chat:
+
+```ts
+export type DocumentProgressEvent = Omit<MessageEvent, 'type' | 'data'> & (
+  | { type: 'message'; data: DocumentProgressDTO }
+  | { type: 'heartbeat'; data: Record<string, never> }
+);
+```
+
+Gunakan `Observable<DocumentProgressEvent>` pada controller dan service. Pastikan event producer mengirim payload yang cocok dengan tipe tersebut. Tipe ini membantu pemeriksaan saat development; ia **tidak menjalankan validasi runtime terhadap SSE secara otomatis**.
+
 ## Checklist sebelum membuat atau mengubah endpoint
 
 - [ ] Base schema Zod entity tetap ada dan lengkap.
+- [ ] Base DTO dibuat lewat class `createZodDto` dengan `implements z.infer`, bukan alias `type z.infer`.
 - [ ] Field request berasal dari schema turunan, bukan menerima seluruh entity tanpa kebutuhan.
 - [ ] DTO request berupa class `createZodDto(...)` dan digunakan di `@Body()`/`@Query()` jika memerlukan validasi Zod.
 - [ ] `nullable`, `optional`, dan aturan field sesuai kontrak endpoint.
 - [ ] Tipe response sesuai data aktual, menggunakan DTO/`Pick`/`Omit` bila cocok.
+- [ ] Nama tipe response mencerminkan operasi; gunakan alias semantik bila bentuk respons identik.
+- [ ] Event SSE mempunyai tipe `type` dan `data` yang sesuai untuk setiap event.
 - [ ] Tidak ada schema/type duplikat yang dibuat hanya untuk mengikuti bentuk folder.
 - [ ] Perubahan schema/DTO diuji untuk input valid dan tidak valid.

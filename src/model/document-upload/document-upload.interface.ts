@@ -1,6 +1,19 @@
 import type { Document } from '../../generated/prisma/client';
+import type { MessageEvent } from '@nestjs/common';
 
 export type DocumentProcessDTO = Pick<Document, 'id' | 'status'>;
+
+export interface DocumentProgressDTO {
+  document_id: DocumentProcessDTO['id'];
+  status: DocumentProcessDTO['status'];
+  progress: number;
+  error?: string;
+}
+
+export type DocumentProgressEvent = Omit<MessageEvent, 'type' | 'data'> & (
+  | { type: 'message'; data: DocumentProgressDTO }
+  | { type: 'heartbeat'; data: Record<string, never> }
+);
 
 export interface PresignUrlDTO {
   document_id: string;

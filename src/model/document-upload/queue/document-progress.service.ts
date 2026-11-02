@@ -42,7 +42,11 @@ export class DocumentsListener extends QueueEventsHost {
       },
       'Document job progress',
     );
-    this.documents.emitProgress(jobId, 'message', { document_id: jobId, status: 'PROCESSING', progress: data });
+    this.documents.emitProgress(jobId, 'message', {
+      document_id: jobId,
+      status: 'PROCESSING',
+      progress: typeof data === 'number' ? data : 0,
+    });
   }
 
   @OnQueueEvent(DOCUMENT_QUEUE.DOCUMENTS.EVENTS.COMPLETED)

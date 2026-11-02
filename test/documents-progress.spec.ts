@@ -63,6 +63,23 @@ describe('document queue progress', () => {
     subscription.unsubscribe();
   });
 
+  it('keeps the SSE progress payload numeric for unexpected queue data', async () => {
+    const { service, listener } = setup();
+    const events: any[] = [];
+    const subscription = (await service.progress('owner', 'doc'))
+      .subscribe((event: unknown) => events.push(event));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    listener.onProgress({ jobId: 'doc', data: { unexpected: true } });
+
+    expect(events.at(-1)).toEqual({
+      type: 'message',
+      data: { document_id: 'doc', status: 'PROCESSING', progress: 0 },
+    });
+    subscription.unsubscribe();
+  });
+
   it('emits heartbeat and cleans up on disconnect', async () => {
     vi.useFakeTimers();
     const { service } = setup();

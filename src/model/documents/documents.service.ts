@@ -14,6 +14,7 @@ import type { WebResponse } from '../../common/common.interface';
 import type { PaginationDto } from '../../common/common.dto';
 import type {
   DocumentFindAllDTO,
+  DocumentFindAllDeletedDTO,
   DocumentFindOneDTO,
   DocumentMutationDTO,
 } from './documents.interface';
@@ -69,7 +70,7 @@ export class DocumentsService {
   async findDeleted(
     userId: string,
     { page, limit }: PaginationDto,
-  ): Promise<WebResponse<DocumentFindAllDTO>> {
+  ): Promise<WebResponse<DocumentFindAllDeletedDTO>> {
     this.logger.trace({ userId, page, limit }, 'Finding deleted documents');
 
     const where = { userId, deletedAt: { not: null } };

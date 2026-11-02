@@ -1,7 +1,6 @@
 import {
   Body,
   Controller,
-  MessageEvent,
   Param,
   ParseUUIDPipe,
   Post,
@@ -13,7 +12,11 @@ import type { JwtPayload } from '../session/session.interface';
 import type { WebResponse } from '../../common/common.interface';
 import { DocumentUploadService } from './document-upload.service';
 import { CreatePresignUrlDTO } from './dto/presign.dto';
-import type { DocumentProcessDTO, PresignUrlDTO } from './document-upload.interface';
+import type {
+  DocumentProcessDTO,
+  DocumentProgressEvent,
+  PresignUrlDTO,
+} from './document-upload.interface';
 
 @Controller('document-upload')
 export class DocumentUploadController {
@@ -39,7 +42,7 @@ export class DocumentUploadController {
   progress(
     @CurrentUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<Observable<MessageEvent>> {
+  ): Promise<Observable<DocumentProgressEvent>> {
     return this.upload.progress(user.sub, id);
   }
 

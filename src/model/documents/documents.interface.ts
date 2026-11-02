@@ -16,6 +16,8 @@ export type DocumentFindAllDTO = (Omit<Document, 'fileSize'> & {
   fileSize: string | null;
 })[];
 
+export type DocumentFindAllDeletedDTO = DocumentFindAllDTO;
+
 export type DocumentMutationDTO = Pick<
   DocumentDTO,
   'id' | 'fileName' | 'updatedAt'

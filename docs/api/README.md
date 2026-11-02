@@ -2,7 +2,7 @@
 
 Frontend-facing HTTP/SSE contracts. These pages describe the current NestJS routes and examples; legacy implementation notes in `docs/` are not the frontend API source of truth.
 
-Backend schema and DTO conventions: [Validation & DTO Rules](../validation/README.md).
+Backend schema and DTO conventions: [Validation & DTO Rules](../rules/validation.md).
 
 ## Modules
 

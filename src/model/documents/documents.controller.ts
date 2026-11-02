@@ -17,6 +17,7 @@ import { PaginationDto } from '../../common/common.dto';
 import {
   DocumentFindOneDTO,
   DocumentFindAllDTO,
+  DocumentFindAllDeletedDTO,
   DocumentMutationDTO,
 } from './documents.interface';
 import { PinoLogger } from 'nestjs-pino';
@@ -42,7 +43,7 @@ export class DocumentsController {
   findDeleted(
     @CurrentUser() user: JwtPayload,
     @Query() pagination: PaginationDto,
-  ): Promise<WebResponse<DocumentFindAllDTO>> {
+  ): Promise<WebResponse<DocumentFindAllDeletedDTO>> {
     return this.documents.findDeleted(user.sub, pagination);
   }
 
