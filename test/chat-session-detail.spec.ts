@@ -1,0 +1,218 @@
+import { createRequire } from 'node:module';
+
+const require = createRequire(`${process.cwd()}/test/loader.cjs`);
+const {
+  ChatSessionService,
+} = require('../dist/model/chat-session/chat-session.service');
+
+describe('ChatSessionService.findOne', () => {
+  const sessionId = 'f27f6302-a3d9-4e52-9011-6631aafda7f0';
+  const userId = '48bc0e16-1864-49ae-9680-aaeaa094d40c';
+  const userMessageId = '77e78720-5302-4494-8c37-1cae998ac46c';
+  const assistantMessageId = '5132f3ab-b51d-4356-b091-9e70515bc351';
+  const createdAt = new Date('2026-11-02T10:00:00Z');
+
+  function setup({
+    session = {
+      id: sessionId,
+      title: 'Annual Report',
+      answerMode: 'document_only',
+      createdAt,
+      updatedAt: createdAt,
+      activeLeafMessageId: assistantMessageId,
+      sessionDocuments: [
+        {
+          document: {
+            id: 'c14161ef-8ea9-475f-902d-d7127d6c34cc',
+            fileName: 'Annual Report.pdf',
+            pageCount: 120,
+            status: 'READY',
+            deletedAt: null,
+          },
+        },
+      ],
+    },
+    messageIds = [{ id: userMessageId }, { id: assistantMessageId }],
+    histories = [
+      {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: 'Revenue increased [1].',
+        status: 'COMPLETED',
+        createdAt,
+        sources: [
+          {
+            documentId: 'c14161ef-8ea9-475f-902d-d7127d6c34cc',
+            chunkId: 'internal-chunk-id',
+            pageNumber: 12,
+            filename: 'Annual Report.pdf',
+          },
+        ],
+        feedback: { type: 'LIKE' },
+      },
+      {
+        id: userMessageId,
+        role: 'user',
+        content: 'Summarize the report',
+        status: 'COMPLETED',
+        createdAt,
+        sources: [],
+        feedback: null,
+      },
+    ],
+  }: {
+    session?: object | null;
+    messageIds?: { id: string }[];
+    histories?: object[];
+  } = {}) {
+    const prisma = {
+      chatSession: { findFirst: vi.fn().mockResolvedValue(session) },
+      chatHistory: { findMany: vi.fn().mockResolvedValue(histories) },
+      $queryRaw: vi.fn().mockResolvedValue(messageIds),
+    };
+    const logger = { setContext: vi.fn(), trace: vi.fn() };
+    const service = new ChatSessionService(prisma, logger);
+    return { prisma, service };
+  }
+
+  it('returns only the active message path, in conversation order, with Prisma feedback values', async () => {
+    const { service, prisma } = setup();
+
+    const result = await service.findOne(userId, sessionId);
+
+    expect(prisma.chatSession.findFirst).toHaveBeenCalledWith({
+      where: { id: sessionId, userId, deletedAt: null },
+      select: expect.objectContaining({
+        activeLeafMessageId: true,
+        sessionDocuments: expect.any(Object),
+      }),
+    });
+    expect(prisma.chatHistory.findMany).toHaveBeenCalledWith({
+      where: {
+        sessionId,
+        id: { in: [userMessageId, assistantMessageId] },
+        deletedAt: null,
+      },
+      select: expect.objectContaining({ feedback: { select: { type: true } } }),
+    });
+    expect(prisma.$queryRaw).toHaveBeenCalledOnce();
+    const sql = prisma.$queryRaw.mock.calls[0][0].join(' ');
+    expect(sql).toContain('WITH RECURSIVE ancestors');
+    expect(sql).toContain('ORDER BY depth DESC');
+
+    expect(result.data).toEqual({
+      id: sessionId,
+      title: 'Annual Report',
+      answerMode: 'document_only',
+      createdAt,
+      updatedAt: createdAt,
+      documents: [
+        {
+          id: 'c14161ef-8ea9-475f-902d-d7127d6c34cc',
+          fileName: 'Annual Report.pdf',
+          pageCount: 120,
+          status: 'READY',
+          deletedAt: null,
+        },
+      ],
+      messages: [
+        {
+          id: userMessageId,
+          role: 'user',
+          content: 'Summarize the report',
+          status: 'COMPLETED',
+          createdAt,
+          sources: [],
+          feedback: null,
+        },
+        {
+          id: assistantMessageId,
+          role: 'assistant',
+          content: 'Revenue increased [1].',
+          status: 'COMPLETED',
+          createdAt,
+          sources: [
+            {
+              documentId: 'c14161ef-8ea9-475f-902d-d7127d6c34cc',
+              pageNumber: 12,
+            },
+          ],
+          feedback: 'LIKE',
+        },
+      ],
+    });
+  });
+
+  it('returns an empty message list for a session without an active leaf', async () => {
+    const { service, prisma } = setup({
+      session: {
+        id: sessionId,
+        title: 'New Chat',
+        answerMode: null,
+        createdAt,
+        updatedAt: createdAt,
+        activeLeafMessageId: null,
+        sessionDocuments: [],
+      },
+    });
+
+    const result = await service.findOne(userId, sessionId);
+
+    expect(result.data?.messages).toEqual([]);
+    expect(result.data?.documents).toEqual([]);
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    expect(prisma.chatHistory.findMany).not.toHaveBeenCalled();
+  });
+
+  it('hides a missing, deleted, or foreign-owned session behind a 404', async () => {
+    const { service, prisma } = setup({ session: null });
+
+    await expect(service.findOne(userId, sessionId)).rejects.toMatchObject({
+      status: 404,
+    });
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('preserves DISLIKE and excludes messages outside the active path', async () => {
+    const { service } = setup({
+      histories: [
+        {
+          id: assistantMessageId,
+          role: 'assistant',
+          content: 'Answer',
+          status: 'COMPLETED',
+          createdAt,
+          sources: [
+            { documentId: 'doc-id', pageNumber: 3 },
+            null,
+            { pageNumber: 2 },
+          ],
+          feedback: { type: 'DISLIKE' },
+        },
+        {
+          id: 'old-inactive-message',
+          role: 'assistant',
+          content: 'Old branch',
+          status: 'COMPLETED',
+          createdAt,
+          sources: [],
+          feedback: null,
+        },
+      ],
+    });
+
+    const result = await service.findOne(userId, sessionId);
+
+    expect(result.data?.messages).toEqual([
+      {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: 'Answer',
+        status: 'COMPLETED',
+        createdAt,
+        sources: [{ documentId: 'doc-id', pageNumber: 3 }],
+        feedback: 'DISLIKE',
+      },
+    ]);
+  });
+});
