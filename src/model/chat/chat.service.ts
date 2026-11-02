@@ -339,6 +339,24 @@ export class ChatService {
     }
   }
 
+  private async attachDocuments(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    sessionId: string,
+    documentIds: string[],
+  ): Promise<void> {
+    await this.validateDocuments(tx, userId, documentIds);
+    if (!documentIds.length) return;
+
+    await tx.sessionDocument.createMany({
+      data: [...new Set(documentIds)].map((documentId) => ({
+        sessionId,
+        documentId,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
   private async getHistory(
     tx: Prisma.TransactionClient,
     sessionId: string,
@@ -360,6 +378,41 @@ export class ChatService {
       WHERE status = 'completed' AND role IN ('user', 'assistant')
       ORDER BY depth DESC
     `;
+  }
+
+  private async createStreamingAssistant(
+    tx: Prisma.TransactionClient,
+    input: {
+      sessionId: string;
+      parentMessageId: string | null;
+      versionGroupId?: string;
+      answerMode: SendChatDTO['answerMode'];
+      model: string;
+    },
+  ): Promise<{ assistantId: string; completionId: string }> {
+    const assistant = await tx.chatHistory.create({
+      data: {
+        sessionId: input.sessionId,
+        parentMessageId: input.parentMessageId,
+        versionGroupId: input.versionGroupId,
+        role: 'assistant',
+        content: '',
+        answerMode: input.answerMode,
+        status: ChatHistoryStatus.STREAMING,
+      },
+      select: { id: true },
+    });
+    const completion = await tx.completion.create({
+      data: {
+        chatHistoryId: assistant.id,
+        model: input.model,
+        provider: 'groq',
+        status: ChatHistoryStatus.STREAMING,
+      },
+      select: { id: true },
+    });
+
+    return { assistantId: assistant.id, completionId: completion.id };
   }
 
   async fork(
@@ -575,35 +628,24 @@ export class ChatService {
         session.id,
         question.parentMessageId,
       );
-      const assistant = await tx.chatHistory.create({
-        data: {
+      const { assistantId, completionId } = await this.createStreamingAssistant(
+        tx,
+        {
           sessionId: session.id,
           parentMessageId: original.parentMessageId,
           versionGroupId: original.versionGroupId,
-          role: 'assistant',
-          content: '',
           answerMode,
-          status: ChatHistoryStatus.STREAMING,
-        },
-        select: { id: true },
-      });
-      const completion = await tx.completion.create({
-        data: {
-          chatHistoryId: assistant.id,
           model,
-          provider: 'groq',
-          status: ChatHistoryStatus.STREAMING,
         },
-        select: { id: true },
-      });
+      );
       await tx.chatSession.update({
         where: { id: session.id },
-        data: { activeLeafMessageId: assistant.id, lastMessageAt: new Date() },
+        data: { activeLeafMessageId: assistantId, lastMessageAt: new Date() },
       });
       return {
         sessionId: session.id,
-        assistantId: assistant.id,
-        completionId: completion.id,
+        assistantId,
+        completionId,
         documentIds,
         history,
         model,
@@ -663,16 +705,7 @@ export class ChatService {
           'Document mode requires at least one document',
         );
       }
-      await this.validateDocuments(tx, userId, documentIds);
-      if (documentIds.length) {
-        await tx.sessionDocument.createMany({
-          data: [...new Set(documentIds)].map((documentId) => ({
-            sessionId: session.id,
-            documentId,
-          })),
-          skipDuplicates: true,
-        });
-      }
+      await this.attachDocuments(tx, userId, session.id, documentIds);
 
       const history = await this.getHistory(
         tx,
@@ -691,38 +724,27 @@ export class ChatService {
         },
         select: { id: true },
       });
-      const assistant = await tx.chatHistory.create({
-        data: {
+      const { assistantId, completionId } = await this.createStreamingAssistant(
+        tx,
+        {
           sessionId: session.id,
           parentMessageId: editedUser.id,
-          role: 'assistant',
-          content: '',
           answerMode,
-          status: ChatHistoryStatus.STREAMING,
-        },
-        select: { id: true },
-      });
-      const completion = await tx.completion.create({
-        data: {
-          chatHistoryId: assistant.id,
           model,
-          provider: 'groq',
-          status: ChatHistoryStatus.STREAMING,
         },
-        select: { id: true },
-      });
+      );
       await tx.chatSession.update({
         where: { id: session.id },
         data: {
           answerMode,
-          activeLeafMessageId: assistant.id,
+          activeLeafMessageId: assistantId,
           lastMessageAt: new Date(),
         },
       });
       return {
         sessionId: session.id,
-        assistantId: assistant.id,
-        completionId: completion.id,
+        assistantId,
+        completionId,
         question: body.question,
         answerMode,
         mode: body.mode,
@@ -813,29 +835,10 @@ export class ChatService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      let session: {
-        id: string;
-        activeLeafMessageId: string | null;
-      };
+      let session: Pick<LockedSession, 'id' | 'activeLeafMessageId'>;
 
-      // Validate session
       if (body.sessionId) {
-        // Lock session
-        const [locked] = await tx.$queryRaw<(typeof session)[]>`
-          SELECT id, active_leaf_message_id AS "activeLeafMessageId"
-          FROM chat_session
-          WHERE id = ${body.sessionId}::uuid
-            AND user_id = ${userId}::uuid
-            AND deleted_at IS NULL
-          FOR UPDATE
-        `;
-
-        // Check if session exists
-        if (!locked) {
-          throw new NotFoundException('Chat session not found');
-        }
-
-        session = locked;
+        session = await this.lockSession(tx, userId, body.sessionId);
       } else {
         // Create new session
         session = await tx.chatSession.create({
@@ -851,64 +854,18 @@ export class ChatService {
         });
       }
 
-      // Check if chat generation already in progress
-      if (session.activeLeafMessageId) {
-        // Check if chat generation already in progress
-        const active = await tx.chatHistory.findUnique({
-          where: { id: session.activeLeafMessageId },
-          select: { status: true },
-        });
-
-        // Throw if chat generation already in progress
-        if (active?.status === ChatHistoryStatus.STREAMING) {
-          throw new ConflictException('Chat generation already in progress');
-        }
-      }
+      await this.assertNoGeneration(tx, session.activeLeafMessageId);
 
       // Synchronize documents w session document
       const documentIds = body.documentIds ?? [];
-
-      await this.validateDocuments(tx, userId, documentIds);
-
-      if (documentIds.length) {
-        await tx.sessionDocument.createMany({
-          data: documentIds.map((documentId) => ({
-            documentId,
-            sessionId: session.id,
-          })),
-          skipDuplicates: true,
-        });
-      }
+      await this.attachDocuments(tx, userId, session.id, documentIds);
 
       // Get history for context
-      const history: ChatHistoryContext[] = session.activeLeafMessageId
-        ? await tx.$queryRaw<ChatHistoryContext[]>`
-              WITH RECURSIVE ancestors AS (
-                SELECT
-                  id, parent_message_id, role,
-                  content, status, 0 AS depth
-                FROM chat_history
-                WHERE id = ${session.activeLeafMessageId}::uuid
-                  AND session_id = ${session.id}::uuid
-
-                UNION ALL
-
-                SELECT
-                  h.id, h.parent_message_id, h.role,
-                  h.content, h.status, a.depth + 1
-                FROM chat_history h
-                JOIN ancestors a
-                  ON h.id = a.parent_message_id
-                WHERE h.session_id = ${session.id}::uuid
-                  AND a.depth < 9
-              )
-              SELECT role, content
-              FROM ancestors
-              WHERE status = 'completed'
-                AND role IN ('user', 'assistant')
-              ORDER BY depth DESC
-            `
-        : [];
+      const history = await this.getHistory(
+        tx,
+        session.id,
+        session.activeLeafMessageId,
+      );
 
       const userMessage = await tx.chatHistory.create({
         data: {
@@ -922,33 +879,21 @@ export class ChatService {
         select: { id: true },
       });
 
-      const assistant = await tx.chatHistory.create({
-        data: {
+      const { assistantId, completionId } = await this.createStreamingAssistant(
+        tx,
+        {
           sessionId: session.id,
           parentMessageId: userMessage.id,
-          role: 'assistant',
-          content: '',
           answerMode: body.answerMode,
-          status: ChatHistoryStatus.STREAMING,
-        },
-        select: { id: true },
-      });
-
-      const completion = await tx.completion.create({
-        data: {
-          chatHistoryId: assistant.id,
           model,
-          provider: 'groq',
-          status: ChatHistoryStatus.STREAMING,
         },
-        select: { id: true },
-      });
+      );
 
       await tx.chatSession.update({
         where: { id: session.id },
         data: {
           answerMode: body.answerMode,
-          activeLeafMessageId: assistant.id,
+          activeLeafMessageId: assistantId,
           lastMessageAt: new Date(),
         },
         select: { id: true },
@@ -956,8 +901,8 @@ export class ChatService {
 
       return {
         sessionId: session.id,
-        assistantId: assistant.id,
-        completionId: completion.id,
+        assistantId,
+        completionId,
         documentIds,
         history,
         model,
