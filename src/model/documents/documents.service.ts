@@ -5,6 +5,7 @@ import {
   MessageEvent,
 } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { Messages, ErrorMessage } from '../../utils/message.helper';
 import { StorageService } from '../../common/storage/storage.service';
 import { DocumentStatus } from '../../generated/prisma/enums';
 import { WebResponse } from '../../common/common.interface';
@@ -74,7 +75,7 @@ export class DocumentsService {
     });
 
     if (!document) {
-      throw new NotFoundException('Document not found');
+      throw new NotFoundException(ErrorMessage.notFound('Document'));
     }
 
     // Subscribe before loading the snapshot so updates during the read aren't lost.
@@ -151,6 +152,7 @@ export class DocumentsService {
 
       // return data
       return {
+        message: Messages.create('Presigned upload URL'),
         data: {
           document_id: document.id,
           upload_url: url,
@@ -201,6 +203,7 @@ export class DocumentsService {
     ]);
 
     return {
+      message: Messages.get('Documents'),
       data: documents.map((document) => ({
         ...document,
         fileSize: document.fileSize?.toString() ?? null,
@@ -235,8 +238,10 @@ export class DocumentsService {
     );
 
     return {
+      message: Messages.get('Document'),
       data: {
         ...document,
+        fileSize: document.fileSize?.toString() ?? null,
         download_url: downloadUrl,
       },
     };
@@ -279,7 +284,7 @@ export class DocumentsService {
       });
 
       throw new ServiceUnavailableException(
-        'Document queue unavailable; please retry',
+        ErrorMessage.create('Document processing job'),
       );
     }
 
@@ -295,7 +300,7 @@ export class DocumentsService {
     });
 
     return {
-      message: 'Document queued for processing',
+      message: Messages.create('Document processing job'),
       data: document,
     };
   }

@@ -9,6 +9,8 @@ import {
   Patch,
   Post,
   Query,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { ChatSessionService } from './chat-session.service';
 import { CurrentUser } from '../../decorators/current-user.decorator';
@@ -80,11 +82,12 @@ export class ChatSessionController {
   removePermanently(
     @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
-  ): Promise<WebResponse> {
+  ): Promise<WebResponse<UpdateChatSessionResDto>> {
     return this.chatSessionService.removePermanently(user.sub, id);
   }
 
   @Post(':id/restore')
+  @HttpCode(HttpStatus.OK)
   restore(
     @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,

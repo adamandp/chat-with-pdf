@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomUUID } from 'node:crypto';
+import { Messages } from '../../utils/message.helper';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { CookieRequest, WebResponse } from '../../common/common.interface.js';
 import {
@@ -165,6 +166,7 @@ export class SessionService {
     );
 
     return {
+      message: Messages.update('Access token'),
       data: {
         accessToken: await this.signAccess({
           sub: payload.sub,

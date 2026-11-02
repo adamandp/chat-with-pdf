@@ -36,17 +36,12 @@ Authorization: Bearer <access-jwt>
 
 ```json
 {
+  "message": "📦 Chat sessions retrieved successfully! Smooth sailing! 😎",
   "data": [
     {
       "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
-      "userId": "<user-uuid>",
       "title": "Financial Analysis",
-      "answerMode": "document_only",
-      "activeLeafMessageId": "<message-uuid>",
-      "lastMessageAt": "2026-10-30T12:00:00.000Z",
-      "createdAt": "2026-10-30T11:00:00.000Z",
-      "updatedAt": "2026-10-30T11:00:00.000Z",
-      "deletedAt": null
+      "updatedAt": "2026-10-30T11:00:00.000Z"
     }
   ],
   "paging": {
@@ -89,17 +84,12 @@ Authorization: Bearer <access-jwt>
 
 ```json
 {
+  "message": "📦 Deleted chat sessions retrieved successfully! Smooth sailing! 😎",
   "data": [
     {
       "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
-      "userId": "<user-uuid>",
-      "title": "Old chat",
-      "answerMode": "general",
-      "activeLeafMessageId": null,
-      "lastMessageAt": null,
-      "createdAt": "2026-10-30T11:00:00.000Z",
-      "updatedAt": "2026-10-30T13:00:00.000Z",
-      "deletedAt": "2026-10-30T13:00:00.000Z"
+      "title": "Financial Analysis",
+      "updatedAt": "2026-10-30T11:00:00.000Z"
     }
   ],
   "paging": {
@@ -141,19 +131,20 @@ Authorization: Bearer <access-jwt>
 
 ```json
 {
+  "message": "📦 Chat session messages retrieved successfully! Smooth sailing! 😎",
   "data": [
     {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "id": "234726de-85ef-4d6f-95a1-eb420ac0cc01",
       "sessionId": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
       "parentMessageId": null,
-      "versionGroupId": "550e8400-e29b-41d4-a716-446655440000",
+      "versionGroupId": "811532e8-89bc-4cbe-8f64-f13e6231df0e",
       "role": "user",
-      "content": "Summarize the PDF",
+      "content": "Summarize the financial report.",
       "sources": [],
       "answerMode": "document_only",
       "status": "COMPLETED",
-      "createdAt": "2026-10-30T12:00:00.000Z",
-      "updatedAt": "2026-10-30T12:00:00.000Z",
+      "createdAt": "2026-10-30T11:00:00.000Z",
+      "updatedAt": "2026-10-30T11:00:00.000Z",
       "deletedAt": null
     }
   ]
@@ -200,16 +191,11 @@ Content-Type: application/json
 
 ```json
 {
+  "message": "🔄 Chat session updated successfully! Looking fresh! ✨",
   "data": {
     "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
-    "userId": "<user-uuid>",
     "title": "Updated Chat Title",
-    "answerMode": "document_only",
-    "activeLeafMessageId": "<message-uuid>",
-    "lastMessageAt": "2026-10-30T12:00:00.000Z",
-    "createdAt": "2026-10-30T11:00:00.000Z",
-    "updatedAt": "2026-10-30T13:00:00.000Z",
-    "deletedAt": null
+    "updatedAt": "2026-10-30T11:00:00.000Z"
   }
 }
 ```
@@ -238,16 +224,11 @@ Content-Type: application/json
 
 ```json
 {
+  "message": "🗑️ Chat session deleted successfully! Sayonara! 👋",
   "data": {
     "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
-    "userId": "<user-uuid>",
-    "title": "Financial Analysis",
-    "answerMode": "document_only",
-    "activeLeafMessageId": "<message-uuid>",
-    "lastMessageAt": "2026-10-30T12:00:00.000Z",
-    "createdAt": "2026-10-30T11:00:00.000Z",
-    "updatedAt": "2026-10-30T13:00:00.000Z",
-    "deletedAt": "2026-10-30T13:00:00.000Z"
+    "title": "Updated Chat Title",
+    "updatedAt": "2026-10-30T11:00:00.000Z"
   }
 }
 ```
@@ -278,7 +259,12 @@ Content-Type: application/json
 
 ```json
 {
-  "message": "Session permanently deleted"
+  "message": "🗑️ Chat session permanently deleted successfully! Sayonara! 👋",
+  "data": {
+    "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
+    "title": "Updated Chat Title",
+    "updatedAt": "2026-10-30T11:00:00.000Z"
+  }
 }
 ```
 
@@ -304,20 +290,15 @@ Content-Type: application/json
 | --- | --- | --- | --- | --- |
 | `id` | Path | UUID | Yes | Soft-deleted owned session |
 
-### Success response — 201 Created
+### Success response — 200 OK
 
 ```json
 {
+  "message": "♻️ Chat session restored successfully! Back in action! ✨",
   "data": {
     "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
-    "userId": "<user-uuid>",
-    "title": "Financial Analysis",
-    "answerMode": "document_only",
-    "activeLeafMessageId": "<message-uuid>",
-    "lastMessageAt": "2026-10-30T12:00:00.000Z",
-    "createdAt": "2026-10-30T11:00:00.000Z",
-    "updatedAt": "2026-10-30T14:00:00.000Z",
-    "deletedAt": null
+    "title": "Updated Chat Title",
+    "updatedAt": "2026-10-30T11:00:00.000Z"
   }
 }
 ```
@@ -332,14 +313,15 @@ Content-Type: application/json
 
 ## ChatSession response fields
 
-| Field | Type | Meaning |
+List, update, soft delete, permanent delete and restore return **only** the following summary fields in `data`:
+
+| Field | JSON type | Meaning |
 | --- | --- | --- |
-| `id`, `userId` | UUID | Conversation and owner |
-| `title` | string / null | Name of chat |
-| `answerMode` | string / null | Last session answer mode |
-| `activeLeafMessageId` | UUID / null | Active branch leaf |
-| `lastMessageAt` | ISO timestamp / null | Latest message time |
-| `createdAt`, `updatedAt`, `deletedAt` | ISO timestamp / null | Lifecycle timestamps |
+| `id` | UUID | Chat session identifier |
+| `title` | string / null | Session title |
+| `updatedAt` | ISO timestamp / null | Last modification timestamp |
+
+`GET /chat-sessions/:id/chats` returns full chat-history records including `content`, `role`, `parentMessageId`, `sources`, and status.
 
 ## Known issues and missing endpoints
 

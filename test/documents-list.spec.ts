@@ -37,6 +37,7 @@ describe('DocumentsService.findAll', () => {
       where: { userId: 'owner-id', deletedAt: null },
     });
     expect(response).toEqual({
+      message: '📦 Documents retrieved successfully! Smooth sailing! 😎',
       data: [
         { id: 'document-id', fileSize: '9007199254740993' },
         { id: 'pending-document-id', fileSize: null },
@@ -50,6 +51,7 @@ describe('DocumentsService.findAll', () => {
     const { service } = setup();
 
     expect(await service.findAll('owner-id', PaginationSchema.parse({}))).toEqual({
+      message: '📦 Documents retrieved successfully! Smooth sailing! 😎',
       data: [],
       paging: { currentPage: 1, pageSize: 10, totalItems: 0, totalPages: 0 },
     });

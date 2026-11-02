@@ -1,6 +1,6 @@
 # Authentication API Reference
 
-Account creation, login, profile, token refresh and session termination. All status codes and messages below reflect current controllers, including NestJS default 201 for POST.
+Account creation, login, profile, token refresh and session termination. Status codes and messages reflect the current controllers and the service-level response templates.
 
 ## Endpoint index
 
@@ -43,7 +43,7 @@ No response cookies.
 
 ```json
 {
-  "message": "🎉 Welcome, adamandp! Your account has been created! 🎉"
+  "message": "🎉 Account created successfully! Welcome aboard! 🚀"
 }
 ```
 
@@ -75,7 +75,7 @@ Validates credentials and creates a database-backed authentication session.
 }
 ```
 
-### Success response — 201 Created
+### Success response — 200 OK
 
 **Response headers:**
 
@@ -85,9 +85,9 @@ Set-Cookie: refreshToken=<refresh-jwt>; HttpOnly; SameSite=Lax; Path=/; Expires=
 
 ```json
 {
-  "message": "🔓 Welcome back, adamandp! You have logged in successfully! 🎉",
+  "message": "🎉 Login session created successfully! Welcome aboard! 🚀",
   "data": {
-    "accessToken": "<access-jwt>"
+    "accessToken": "<jwt>"
   }
 }
 ```
@@ -117,9 +117,9 @@ Set-Cookie: refreshToken=<refresh-jwt>; HttpOnly; SameSite=Lax; Path=/; Expires=
 
 ```json
 {
-  "message": "👤 User profile retrieved successfully!",
+  "message": "📦 User profile retrieved successfully! Smooth sailing! 😎",
   "data": {
-    "id": "<user-uuid>",
+    "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
     "username": "adamandp",
     "name": "Adam Ananda Putra"
   }
@@ -148,10 +148,11 @@ Cookie: refreshToken=<refresh-jwt>
 
 **Authentication:** valid refresh cookie. **Bearer:** not required. **Body:** none.
 
-### Success response — 201 Created
+### Success response — 200 OK
 
 ```json
 {
+  "message": "🔄 Access token updated successfully! Looking fresh! ✨",
   "data": {
     "accessToken": "<new-access-jwt>"
   }
@@ -184,7 +185,7 @@ Cookie: refreshToken=<refresh-jwt>
 
 **Bearer:** not required. **Body:** none.
 
-### Success response — 201 Created
+### Success response — 200 OK
 
 **Response headers:**
 
@@ -194,7 +195,7 @@ Set-Cookie: refreshToken=; Expires=<past-date>; Path=/
 
 ```json
 {
-  "message": "🎉 You have logged out successfully! see u lateer"
+  "message": "🗑️ Login session deleted successfully! Sayonara! 👋"
 }
 ```
 
@@ -222,7 +223,7 @@ Authorization: Bearer <access-jwt>
 
 **Refresh cookie:** not required. **Body:** none.
 
-### Success response — 201 Created
+### Success response — 200 OK
 
 **Response headers:**
 
@@ -232,7 +233,7 @@ Set-Cookie: refreshToken=; Expires=<past-date>; Path=/
 
 ```json
 {
-  "message": "Logged out from all devices."
+  "message": "🗑️ All login sessions deleted successfully! Sayonara! 👋"
 }
 ```
 

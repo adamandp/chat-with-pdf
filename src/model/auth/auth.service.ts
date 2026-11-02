@@ -13,6 +13,7 @@ import {
 import { CookieRequest, WebResponse } from '../../common/common.interface.js';
 import { InternalServerErrorException } from '../../exceptions/index.js';
 import bcrypt from 'bcrypt';
+import { Messages, ErrorMessage } from '../../utils/message.helper';
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDTO } from './dto/register.dto.js';
 import { SessionService } from '../session/session.service.js';
@@ -41,7 +42,7 @@ export class AuthService {
       .then((res) => {
         if (!res)
           throw new UnauthorizedException(
-            '🚫 Login failed. Please check your username and password, then try again! 🔍',
+            ErrorMessage.invalidCredential,
           );
       });
   }
@@ -55,7 +56,7 @@ export class AuthService {
     });
     if (!user) {
       throw new UnauthorizedException(
-        '🚫 Login failed. Please check your username and password, then try again! 🔍',
+        ErrorMessage.invalidCredential,
       );
     }
     return {
@@ -72,7 +73,7 @@ export class AuthService {
       select: { id: true },
     });
     if (existingUser) {
-      throw new BadRequestException('Username is already registered');
+      throw new BadRequestException(ErrorMessage.alreadyExist('Username'));
     }
   }
 
@@ -87,18 +88,19 @@ export class AuthService {
       return;
     }
 
-    throw new BadRequestException('You are already logged in.');
+    throw new BadRequestException(ErrorMessage.alreadyLoggedIn);
   }
 
   async logout(request: CookieRequest): Promise<WebResponse> {
     await this.session.revokeCurrent(request);
     return {
-      message: '🎉 You have logged out successfully! see u lateer',
+      message: Messages.delete('Login session'),
     };
   }
 
-  async logoutAll(userId: string): Promise<void> {
+  async logoutAll(userId: string): Promise<WebResponse> {
     await this.session.revokeAll(userId);
+    return { message: Messages.delete('All login sessions') };
   }
 
   async login(
@@ -115,7 +117,7 @@ export class AuthService {
     });
 
     return {
-      message: `🔓 Welcome back, ${user.username}! You have logged in successfully! 🎉`,
+      message: Messages.create('Login session'),
       data: {
         accessToken: token.accessToken,
         refreshToken: token.refreshToken,
@@ -145,7 +147,7 @@ export class AuthService {
     });
 
     return {
-      message: `🎉 Welcome, ${user.username}! Your account has been created! 🎉`,
+      message: Messages.create('Account'),
     };
   }
 
@@ -158,7 +160,7 @@ export class AuthService {
     });
 
     return {
-      message: `👤 User profile retrieved successfully!`,
+      message: Messages.get('User profile'),
       data: {
         id: user?.id,
         username: user?.username ?? undefined,

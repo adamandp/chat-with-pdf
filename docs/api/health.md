@@ -26,7 +26,7 @@ Tests whether the configured storage bucket exists/access is available.
 
 ```json
 {
-  "message": "MinIO connection is healthy",
+  "message": "📦 MinIO connection retrieved successfully! Smooth sailing! 😎",
   "data": {
     "status": "ok",
     "connection": "up"
@@ -55,7 +55,7 @@ Runs `SELECT 1` against the configured PostgreSQL connection.
 
 ```json
 {
-  "message": "Postgres connection is healthy",
+  "message": "📦 Postgres connection retrieved successfully! Smooth sailing! 😎",
   "data": {
     "status": "ok",
     "connection": "up"
@@ -84,7 +84,7 @@ Calls Milvus health check.
 
 ```json
 {
-  "message": "Milvus connection is healthy",
+  "message": "📦 Milvus connection retrieved successfully! Smooth sailing! 😎",
   "data": {
     "status": "ok",
     "connection": "up"
@@ -115,7 +115,7 @@ Sends an actual short prompt (`Reply with only OK.`) to the configured Gemini ch
 
 ```json
 {
-  "message": "AI connection is healthy",
+  "message": "📦 AI connection retrieved successfully! Smooth sailing! 😎",
   "data": {
     "status": "ok",
     "connection": "up"
@@ -146,7 +146,7 @@ Sends an actual short prompt (`Reply with only OK.`) to the configured Groq chat
 
 ```json
 {
-  "message": "AI connection is healthy",
+  "message": "📦 AI connection retrieved successfully! Smooth sailing! 😎",
   "data": {
     "status": "ok",
     "connection": "up"
@@ -169,7 +169,7 @@ Each service throws a NestJS `ServiceUnavailableException` when the check fails,
 
 ```json
 {
-  "errors": "Postgres connection failed",
+  "errors": "🚨 Whoops! Couldn't retrieve Postgres connection. Maybe it's playing hide and seek? 🤔",
   "data": {
     "status": "error",
     "connection": "down"
@@ -177,7 +177,7 @@ Each service throws a NestJS `ServiceUnavailableException` when the check fails,
 }
 ```
 
-Milvus failure instead includes `"database": "down"`. NestJS may add exception response information; no universal app-level error envelope is guaranteed.
+Milvus failure currently includes `"database": "down"`, unlike the `connection` field used by the other health checks. NestJS may add exception response information; no universal app-level error envelope is guaranteed.
 
 ## Operational considerations
 

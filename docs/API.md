@@ -1,6 +1,6 @@
 # Chat With PDF — API Reference
 
-> **Implementation snapshot:** `master` at commit `35e58a507832fb85731b4386f353f5d4000e340d`, reviewed 2026-11-02. These contracts describe existing NestJS code rather than future requirements. UUIDs, JWTs and URLs in examples are illustrative.
+> **Implementation snapshot:** this PR branch based on the latest `master`, reviewed 2026-11-02. These contracts describe existing NestJS code rather than future requirements. UUIDs, JWTs and URLs in examples are illustrative.
 
 ## Modules and endpoints
 
@@ -41,14 +41,15 @@ interface WebResponse<T = unknown> {
 }
 ```
 
-Fields are optional. For instance register returns only `message` and refresh only `data`. SSE endpoints use event frames, **not** this JSON body.
+Fields are optional. For instance register returns only `message`, while refresh returns `message` and `data`. SSE endpoints use event frames, **not** this JSON body.
 
 ## HTTP semantics and error handling
 
 | Operation | Typical actual response |
 | --- | --- |
 | GET, PATCH, DELETE success | 200 OK |
-| POST success without explicit `@HttpCode` | 201 Created (including refresh, logout and restore) |
+| POST success without explicit `@HttpCode` | 201 Created (e.g. register, presigned-url, document processing) |
+| POST success with `@HttpCode(200)` | 200 OK (login, refresh, logout, logout-all, restore) |
 | `@Sse` endpoint | 200 OK, `text/event-stream` |
 | Invalid DTO or UUID | 400 Bad Request |
 | Authentication failed | 401 Unauthorized |
