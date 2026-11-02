@@ -1,6 +1,7 @@
 import { PinoLogger } from 'nestjs-pino';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { Messages, ErrorMessage } from '../../utils/message.helper';
 
 import type { WebResponse } from '../../common/common.interface';
 import type { PaginationDto } from '../../common/common.dto';
@@ -31,6 +32,7 @@ export class ChatSessionService {
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.chatSession.findMany({
         where,
+        select: { id: true, title: true, updatedAt: true },
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
@@ -39,6 +41,7 @@ export class ChatSessionService {
     ]);
 
     return {
+      message: Messages.get('Chat sessions'),
       data,
       paging: {
         currentPage: page,
@@ -60,6 +63,7 @@ export class ChatSessionService {
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.chatSession.findMany({
         where,
+        select: { id: true, title: true, updatedAt: true },
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
@@ -68,6 +72,7 @@ export class ChatSessionService {
     ]);
 
     return {
+      message: Messages.get('Deleted chat sessions'),
       data,
       paging: {
         currentPage: page,
@@ -97,9 +102,12 @@ export class ChatSessionService {
         { userId, sessionId: id },
         'Active chat session not found',
       );
-      throw new NotFoundException('Session not found');
+      throw new NotFoundException(ErrorMessage.notFound('Chat session'));
     }
-    return { data: session.messages };
+    return {
+      message: Messages.get('Chat session messages'),
+      data: session.messages,
+    };
   }
 
   async update(
@@ -117,10 +125,17 @@ export class ChatSessionService {
         { userId, sessionId: id },
         'Active chat session not found',
       );
-      throw new NotFoundException('Session not found');
+      throw new NotFoundException(ErrorMessage.notFound('Chat session'));
     }
     this.logger.info({ userId, sessionId: id }, 'Chat session updated');
-    return { data: sessions[0] };
+    return {
+      message: Messages.update('Chat session'),
+      data: {
+        id: sessions[0].id,
+        title: sessions[0].title,
+        updatedAt: sessions[0].updatedAt,
+      },
+    };
   }
 
   async remove(
@@ -137,10 +152,17 @@ export class ChatSessionService {
         { userId, sessionId: id },
         'Active chat session not found',
       );
-      throw new NotFoundException('Session not found');
+      throw new NotFoundException(ErrorMessage.notFound('Chat session'));
     }
     this.logger.info({ userId, sessionId: id }, 'Chat session soft-deleted');
-    return { data: sessions[0] };
+    return {
+      message: Messages.delete('Chat session'),
+      data: {
+        id: sessions[0].id,
+        title: sessions[0].title,
+        updatedAt: sessions[0].updatedAt,
+      },
+    };
   }
 
   async restore(
@@ -157,20 +179,27 @@ export class ChatSessionService {
         { userId, sessionId: id },
         'Deleted chat session not found',
       );
-      throw new NotFoundException('Session not found');
+      throw new NotFoundException(ErrorMessage.notFound('Chat session'));
     }
     this.logger.info({ userId, sessionId: id }, 'Chat session restored');
-    return { data: sessions[0] };
+    return {
+      message: Messages.restore('Chat session'),
+      data: {
+        id: sessions[0].id,
+        title: sessions[0].title,
+        updatedAt: sessions[0].updatedAt,
+      },
+    };
   }
 
-  async removePermanently(userId: string, id: string): Promise<WebResponse> {
+  async removePermanently(userId: string, id: string): Promise<WebResponse<UpdateChatSessionResDto>> {
     this.logger.trace(
       { userId, sessionId: id },
       'Permanently deleting chat session',
     );
     const response = await this.prisma.$transaction(async (tx) => {
-      const locked = await tx.$queryRaw<{ id: string }[]>`
-        SELECT id
+      const locked = await tx.$queryRaw<{ id: string; title: string; updatedAt: Date }[]>`
+        SELECT id, title, updated_at AS "updatedAt"
         FROM chat_session
         WHERE id = ${id}::uuid
           AND user_id = ${userId}::uuid
@@ -182,7 +211,7 @@ export class ChatSessionService {
           { userId, sessionId: id },
           'Deleted chat session not found',
         );
-        throw new NotFoundException('Deleted session not found');
+        throw new NotFoundException(ErrorMessage.notFound('Deleted chat session'));
       }
 
       const chatHistory = { sessionId: id };
@@ -198,7 +227,14 @@ export class ChatSessionService {
       await tx.sessionDocument.deleteMany({ where: { sessionId: id } });
       await tx.chatSession.delete({ where: { id, userId } });
 
-      return { message: 'Session permanently deleted' };
+      return {
+        message: Messages.delete('Chat session permanently'),
+        data: {
+          id: locked[0].id,
+          title: locked[0].title,
+          updatedAt: locked[0].updatedAt,
+        },
+      };
     });
 
     this.logger.info(

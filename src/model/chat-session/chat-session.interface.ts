@@ -4,6 +4,11 @@ import { BaseChatSessionSchema } from './chat-session.validation';
 
 export type BaseChatSessionDto = z.infer<typeof BaseChatSessionSchema>;
 
-export type FindAllChatSessionResDto = BaseChatSessionDto[];
+export type ChatSessionSummaryDto = Pick<
+  BaseChatSessionDto,
+  'id' | 'title' | 'updatedAt'
+>;
+
+export type FindAllChatSessionResDto = ChatSessionSummaryDto[];
 export type FindChatsResDto = ChatHistory[];
-export type UpdateChatSessionResDto = BaseChatSessionDto;
+export type UpdateChatSessionResDto = ChatSessionSummaryDto;

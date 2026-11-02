@@ -12,6 +12,8 @@ const { AiModule } = require('../dist/common/ai/ai.module');
 const { HealthController } = require('../dist/model/health/health.controller');
 
 const { HealthService } = require('../dist/model/health/health.service');
+const { GeminiService } = require('../dist/common/ai/gemini.service');
+const { PinoLogger } = require('nestjs-pino');
 
 const { PrismaService } = require('../dist/common/prisma/prisma.service');
 
@@ -38,6 +40,7 @@ describe.skipIf(process.env.RUN_AI_HEALTH_INTEGRATION !== '1')('AI health over H
         controllers: [HealthController],
         providers: [
           HealthService,
+          { provide: PinoLogger, useValue: { setContext: vi.fn(), error: vi.fn() } },
           {
             provide: StorageService,
             useValue: {},
@@ -62,41 +65,42 @@ describe.skipIf(process.env.RUN_AI_HEALTH_INTEGRATION !== '1')('AI health over H
   });
   it('probes the configured model through its actual HTTP client', async () => {
     const response = await request(app.getHttpServer())
-      .get('/health/ai')
+      .get('/health/gemini')
       .expect(200);
 
     expect(response.body)
       .toEqual({
-        message: 'AI connection is healthy',
+        message: "📦 AI connection retrieved successfully! Smooth sailing! 😎",
         data: {
           status: 'ok',
-          ai: 'up',
+          connection: 'up',
         },
       });
     expect(queryRaw).not.toHaveBeenCalled();
     expect(checkHealth).not.toHaveBeenCalled();
   }, 15000);
-  it.skipIf(process.env.LLM_PROVIDER !== 'openai')(
-    'returns safe 503 when the provider is unreachable',
+  it(
+    'returns safe 503 when Gemini is unreachable',
     async () => {
-      const previous = process.env.OPENAI_BASE_URL;
-
-      process.env.OPENAI_BASE_URL = 'http://127.0.0.1:1/v1';
+      const gemini = app.get(GeminiService);
+      const modelSpy = vi.spyOn(gemini, 'chatModel').mockReturnValue({
+        invoke: vi.fn().mockRejectedValue(new Error('upstream offline')),
+      } as never);
       try {
         const response = await request(app.getHttpServer())
-          .get('/health/ai')
+          .get('/health/gemini')
           .expect(503);
 
         expect(response.body)
           .toEqual({
-            errors: 'AI connection failed',
+            errors: "🚨 Whoops! Couldn't retrieve AI connection. Maybe it's playing hide and seek? 🤔",
             data: {
               status: 'error',
-              ai: 'down',
+              connection: 'down',
             },
           });
       } finally {
-        process.env.OPENAI_BASE_URL = previous;
+        modelSpy.mockRestore();
       }
     },
     15000,

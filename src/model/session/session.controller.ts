@@ -2,6 +2,8 @@ import {
   Controller,
   Post,
   Req,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { SessionService } from './session.service.js';
 import { Public } from '../../decorators/public.decorator.js';
@@ -19,6 +21,7 @@ export class SessionController {
   }
 
   @Post('refresh')
+  @HttpCode(HttpStatus.OK)
   @Public()
   async refreshAccessToken(
     @Req() request: CookieRequest,

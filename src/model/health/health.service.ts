@@ -7,6 +7,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { MilvusService } from '../../common/milvus/milvus.service';
 import { PinoLogger } from 'nestjs-pino';
 import { GroqService } from '../../common/ai/groq.service';
+import { Messages, ErrorMessage } from '../../utils/message.helper';
 
 @Injectable()
 export class HealthService {
@@ -30,7 +31,7 @@ export class HealthService {
 
       // return healthy
       return {
-        message: 'MinIO connection is healthy',
+        message: Messages.get('MinIO connection'),
         data: {
           status: 'ok',
           connection: 'up',
@@ -39,7 +40,7 @@ export class HealthService {
     } catch {
       // return unhealthy
       throw new ServiceUnavailableException({
-        errors: 'MinIO connection failed',
+        errors: ErrorMessage.get('MinIO connection'),
         data: {
           status: 'error',
           connection: 'down',
@@ -59,7 +60,7 @@ export class HealthService {
 
       // return healthy
       return {
-        message: 'Postgres connection is healthy',
+        message: Messages.get('Postgres connection'),
         data: {
           status: 'ok',
           connection: 'up',
@@ -68,7 +69,7 @@ export class HealthService {
     } catch {
       // return unhealthy
       throw new ServiceUnavailableException({
-        errors: 'Postgres connection failed',
+        errors: ErrorMessage.get('Postgres connection'),
         data: {
           status: 'error',
           connection: 'down',
@@ -86,7 +87,7 @@ export class HealthService {
 
       // return healthy
       return {
-        message: 'Milvus connection is healthy',
+        message: Messages.get('Milvus connection'),
         data: {
           status: 'ok',
           connection: 'up',
@@ -95,7 +96,7 @@ export class HealthService {
     } catch {
       // return unhealthy
       throw new ServiceUnavailableException({
-        errors: 'Milvus connection failed',
+        errors: ErrorMessage.get('Milvus connection'),
         data: {
           status: 'error',
           database: 'down',
@@ -117,7 +118,7 @@ export class HealthService {
           },
         );
       return {
-        message: 'AI connection is healthy',
+        message: Messages.get('AI connection'),
         data: {
           status: 'ok',
           connection: 'up',
@@ -129,7 +130,7 @@ export class HealthService {
       this.logger.error('Gemini health check failed:', error);
 
       throw new ServiceUnavailableException({
-        errors: 'AI connection failed',
+        errors: ErrorMessage.get('AI connection'),
         data: {
           status: 'error',
           connection: 'down',
@@ -150,7 +151,7 @@ export class HealthService {
           },
         );
       return {
-        message: 'AI connection is healthy',
+        message: Messages.get('AI connection'),
         data: {
           status: 'ok',
           connection: 'up',
@@ -162,7 +163,7 @@ export class HealthService {
       this.logger.error('Groq health check failed:', error);
 
       throw new ServiceUnavailableException({
-        errors: 'AI connection failed',
+        errors: ErrorMessage.get('AI connection'),
         data: {
           status: 'error',
           connection: 'down',

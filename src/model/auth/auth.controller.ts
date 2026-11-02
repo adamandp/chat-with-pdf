@@ -5,6 +5,8 @@ import {
   Req,
   Res,
   Get,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { AuthService } from './auth.service.js';
 import { PinoLogger } from 'nestjs-pino';
@@ -37,6 +39,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @HttpCode(HttpStatus.OK)
   @Public()
   async login(
     @Body() loginDto: LoginDto,
@@ -81,18 +84,20 @@ export class AuthController {
   }
 
   @Post('logout-all')
+  @HttpCode(HttpStatus.OK)
   async logoutAll(
     @CurrentUser() payload: JwtPayload,
     @Res({ passthrough: true }) response: Response,
   ): Promise<WebResponse> {
-    await this.authService.logoutAll(payload.sub);
+    const result = await this.authService.logoutAll(payload.sub);
 
     response.clearCookie('refreshToken');
 
-    return { message: 'Logged out from all devices.' };
+    return result;
   }
 
   @Post('logout')
+  @HttpCode(HttpStatus.OK)
   @Public()
   async logout(
     @Req() request: CookieRequest,

@@ -7,7 +7,7 @@ class DocumentDTO
   extends createZodDto(documentSchema)
   implements z.infer<typeof documentSchema> { }
 
-type DocumentProcessDTO = Pick<Document, 'id'>;
+type DocumentProcessDTO = Pick<Document, 'id' | 'status'>;
 
 interface PresignUrlDTO {
   document_id: string;
@@ -15,7 +15,8 @@ interface PresignUrlDTO {
   expires_in: number;
 }
 
-type DocumentFindOneDTO = Document & {
+type DocumentFindOneDTO = Omit<Document, 'fileSize'> & {
+  fileSize: string | null;
   download_url: string;
 };
 

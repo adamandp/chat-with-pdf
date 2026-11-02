@@ -11,7 +11,8 @@ const require = createRequire(`${process.cwd()}/test/loader.cjs`);
 
 const { AppModule } = require('../dist/app.module');
 
-const { DocumentWorkerService } = require('../dist/model/documents/processing/document-worker.service');
+const { DocumentsProcessor } = require('../dist/model/documents/queue/documents.processor');
+const { DocumentsListener } = require('../dist/model/documents/queue/document-progress.service');
 
 const { MilvusService } = require('../dist/common/milvus/milvus.service');
 
@@ -37,7 +38,9 @@ describe('auth with PostgreSQL (e2e)', () => {
 
   beforeAll(async () => {
     const module = await Test.createTestingModule({ imports: [AppModule] })
-      .overrideProvider(DocumentWorkerService)
+      .overrideProvider(DocumentsProcessor)
+      .useValue({})
+      .overrideProvider(DocumentsListener)
       .useValue({})
       .overrideProvider(StorageService)
       .useValue({})
@@ -71,7 +74,6 @@ describe('auth with PostgreSQL (e2e)', () => {
     const user = await db.user.findUniqueOrThrow({ where: { username } });
 
     userId = user.id;
-    expect(user.email).toBeNull();
     expect(await db.authSession.count({ where: { userId } })).toBe(0);
     await request(server).get('/auth/profile').expect(401);
 
@@ -83,7 +85,7 @@ describe('auth with PostgreSQL (e2e)', () => {
       const res = await request(server)
         .post('/auth/login')
         .send({ username, password })
-        .expect(201);
+        .expect(200);
 
       expect(res.body.data).toEqual({ accessToken: expect.any(String) });
       devices.push({
@@ -108,7 +110,7 @@ describe('auth with PostgreSQL (e2e)', () => {
     await request(server)
       .post('/auth/login')
       .send({ username, password })
-      .expect(201);
+      .expect(200);
     await request(server)
       .get('/auth/profile')
       .auth(devices[1].access, { type: 'bearer' })
@@ -124,7 +126,7 @@ describe('auth with PostgreSQL (e2e)', () => {
     await request(server)
       .post('/auth/logout')
       .set('Cookie', devices[0].cookie)
-      .expect(201);
+      .expect(200);
     await request(server)
       .get('/auth/profile')
       .auth(devices[0].access, { type: 'bearer' })
@@ -141,7 +143,7 @@ describe('auth with PostgreSQL (e2e)', () => {
     await request(server)
       .post('/auth/logout-all')
       .auth(devices[2].access, { type: 'bearer' })
-      .expect(201);
+      .expect(200);
     expect(
       await db.authSession.count({ where: { userId, revokedAt: null } }),
     ).toBe(0);

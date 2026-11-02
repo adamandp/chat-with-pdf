@@ -43,9 +43,10 @@ Content-Type: application/json
 
 ```json
 {
+  "message": "🎉 Presigned upload URL created successfully! Welcome aboard! 🚀",
   "data": {
-    "document_id": "c55ec1cb-452a-4383-8d6b-ad18a13f1a11",
-    "upload_url": "https://minio.example/bucket/<signed-put-url>",
+    "document_id": "550e8400-e29b-41d4-a716-446655440000",
+    "upload_url": "https://storage.example.com/bucket/<signed-url>",
     "expires_in": 900
   }
 }
@@ -83,20 +84,21 @@ Authorization: Bearer <access-jwt>
 
 ```json
 {
+  "message": "📦 Documents retrieved successfully! Smooth sailing! 😎",
   "data": [
     {
-      "id": "c55ec1cb-452a-4383-8d6b-ad18a13f1a11",
-      "userId": "<user-uuid>",
-      "fileName": "annual-report.pdf",
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "userId": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
+      "fileName": "financial-report.pdf",
       "fileSize": null,
       "mimeType": null,
       "sha256Hash": null,
-      "pageCount": 24,
-      "chunkCount": 120,
+      "pageCount": 15,
+      "chunkCount": 54,
       "status": "READY",
       "errorMessage": null,
       "createdAt": "2026-10-30T11:00:00.000Z",
-      "updatedAt": "2026-10-30T12:00:00.000Z",
+      "updatedAt": "2026-10-30T11:00:00.000Z",
       "deletedAt": null
     }
   ],
@@ -116,7 +118,7 @@ Authorization: Bearer <access-jwt>
 | 400 | Invalid pagination |
 | 401 | Unauthorized |
 
-**Notes:** scoped by `userId` and `deletedAt: null`, sorted by `updatedAt DESC` then ID. Non-null `fileSize` is serialized as a decimal **string** in this list. No search/filter/sort parameters other than pagination.
+**Notes:** scoped by `userId` and `deletedAt: null`, sorted by `updatedAt DESC` then ID. The current upload/worker pipeline does not populate `fileSize`, `mimeType`, or `sha256Hash`; these normally remain `null`. If `fileSize` is populated, it is serialized as a decimal **string**. No search/filter/sort parameters other than pagination.
 
 ## 3. Get Document Detail
 
@@ -136,21 +138,22 @@ Returns one owned, active document, plus a signed download URL.
 
 ```json
 {
+  "message": "📦 Document retrieved successfully! Smooth sailing! 😎",
   "data": {
-    "id": "c55ec1cb-452a-4383-8d6b-ad18a13f1a11",
-    "userId": "<user-uuid>",
-    "fileName": "annual-report.pdf",
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "userId": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
+    "fileName": "financial-report.pdf",
     "fileSize": null,
     "mimeType": null,
     "sha256Hash": null,
-    "pageCount": 24,
-    "chunkCount": 120,
+    "pageCount": 15,
+    "chunkCount": 54,
     "status": "READY",
     "errorMessage": null,
     "createdAt": "2026-10-30T11:00:00.000Z",
-    "updatedAt": "2026-10-30T12:00:00.000Z",
+    "updatedAt": "2026-10-30T11:00:00.000Z",
     "deletedAt": null,
-    "download_url": "https://minio.example/bucket/<signed-get-url>"
+    "download_url": "https://storage.example.com/bucket/<temporary-get-url>"
   }
 }
 ```
@@ -162,9 +165,8 @@ Returns one owned, active document, plus a signed download URL.
 | 400 | Malformed UUID |
 | 401 | Unauthorized |
 | 404 | Document not found, deleted, or not owned by caller |
-| 500 | Possible serialization failure if `fileSize` is non-null BigInt |
 
-**Known issue:** unlike the list endpoint, `findOne` returns Prisma `BigInt` as-is. JSON serialization can fail for a non-null `fileSize`. Download URL expires in 900 seconds. Current service does not require `READY` status to generate a URL.
+**Note:** `findOne` serializes `fileSize` as a decimal string or null, matching the list endpoint. The current worker does not populate `fileSize`, `mimeType`, or `sha256Hash` (typically `null`). Download URL expires in 900 seconds. The service does not require `READY` status to generate a URL.
 
 ## 4. Queue Document Processing
 
@@ -184,9 +186,9 @@ Marks a document `QUEUED` and submits a BullMQ job using document ID as `jobId`.
 
 ```json
 {
-  "message": "Document queued for processing",
+  "message": "🎉 Document processing job created successfully! Welcome aboard! 🚀",
   "data": {
-    "id": "c55ec1cb-452a-4383-8d6b-ad18a13f1a11",
+    "id": "550e8400-e29b-41d4-a716-446655440000",
     "status": "QUEUED"
   }
 }
@@ -303,8 +305,8 @@ The worker extracts page text, splits and embeds chunks in batches of 50, writes
 | --- | --- | --- |
 | `id`, `userId` | UUID | Document and owner |
 | `fileName` | string / null | Filename; may currently be null |
-| `fileSize` | string / null in list | BigInt in Prisma; detail endpoint bug |
-| `mimeType`, `sha256Hash` | string / null | Not populated by current presign service |
+| `fileSize` | string / null in list and detail | Usually null; BigInt in Prisma converts to JSON-safe string when populated |
+| `mimeType`, `sha256Hash` | string / null | Not populated by current presign service or document worker (normally null) |
 | `pageCount`, `chunkCount` | number / null | May be set during processing |
 | `status` | enum | `PENDING_UPLOAD`, `QUEUED`, `PROCESSING`, `READY`, `FAILED`, `DELETING`, `DELETED` |
 | `errorMessage` | string / null | Failure details |
