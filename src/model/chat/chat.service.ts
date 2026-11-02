@@ -84,6 +84,212 @@ export class ChatService {
     this.logger.setContext(ChatService.name);
   }
 
+  async send(
+    userId: string,
+    body: SendChatDTO,
+  ): Promise<Observable<SendChatEvent>> {
+    // Validasi dan persistence dilakukan sebelum SSE dimulai.
+    // Kalau gagal, Nest masih bisa mengembalikan HTTP 4xx.
+    const prepared = await this.prepareSend(userId, body);
+
+    return this.streamResponse(userId, prepared);
+  }
+
+  async edit(
+    userId: string,
+    messageId: string,
+    body: SendChatDTO,
+  ): Promise<Observable<SendChatEvent>> {
+    return this.streamResponse(
+      userId,
+      await this.prepareEdit(userId, messageId, body),
+    );
+  }
+
+  async regenerate(
+    userId: string,
+    messageId: string,
+    body: RegenerateChatDTO,
+  ): Promise<Observable<SendChatEvent>> {
+    return this.streamResponse(
+      userId,
+      await this.prepareRegenerate(userId, messageId, body),
+    );
+  }
+
+  async fork(
+    userId: string,
+    sessionId: string,
+    body: ForkChatDTO,
+  ): Promise<WebResponse<ForkChatResDTO>> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const original = await this.lockSession(tx, userId, sessionId);
+        const target = await tx.chatHistory.findFirst({
+          where: { id: body.messageId, sessionId, deletedAt: null },
+          select: { id: true, status: true },
+        });
+        if (!target)
+          throw new NotFoundException(ErrorMessage.notFound('Chat message'));
+        if (target.status !== ChatHistoryStatus.COMPLETED) {
+          throw new ConflictException('Only completed messages can be forked');
+        }
+
+        const path = await tx.$queryRaw<ForkMessage[]>`
+        WITH RECURSIVE ancestors AS (
+          SELECT id, parent_message_id, version_group_id, role, content,
+                 sources, answer_mode, status, ARRAY[id] AS visited, 0 AS depth
+          FROM chat_history
+          WHERE id = ${body.messageId}::uuid AND session_id = ${sessionId}::uuid
+            AND deleted_at IS NULL
+          UNION ALL
+          SELECT h.id, h.parent_message_id, h.version_group_id, h.role, h.content,
+                 h.sources, h.answer_mode, h.status, a.visited || h.id, a.depth + 1
+          FROM chat_history h
+          JOIN ancestors a ON h.id = a.parent_message_id
+          WHERE h.session_id = ${sessionId}::uuid AND h.deleted_at IS NULL
+            AND NOT (h.id = ANY(a.visited))
+        )
+        SELECT id, parent_message_id AS "parentMessageId",
+               version_group_id AS "versionGroupId", role, content, sources,
+               answer_mode AS "answerMode", UPPER(status::text) AS status
+        FROM ancestors ORDER BY depth DESC
+      `;
+        if (!path.length || path[0].parentMessageId !== null) {
+          throw new ConflictException('Cannot fork an incomplete message path');
+        }
+
+        const attached = await tx.sessionDocument.findMany({
+          where: { sessionId },
+          select: { documentId: true },
+        });
+        const documentIds = attached.map(({ documentId }) => documentId);
+        if (documentIds.length) {
+          const count = await tx.document.count({
+            where: { id: { in: documentIds }, userId },
+          });
+          if (count !== documentIds.length) {
+            throw new ConflictException(
+              'Session contains inaccessible documents',
+            );
+          }
+        }
+
+        const title = `Fork → ${original.title ?? 'New Chat'}`.slice(0, 255);
+        const forked = await tx.chatSession.create({
+          data: {
+            userId,
+            title,
+            answerMode: original.answerMode,
+            lastMessageAt: new Date(),
+          },
+          select: { id: true, title: true },
+        });
+
+        const messageIds = new Map<string, string>();
+        const versionGroups = new Map<string, string>();
+        for (const message of path) {
+          const newId = randomUUID();
+          const versionGroupId =
+            versionGroups.get(message.versionGroupId) ?? randomUUID();
+          versionGroups.set(message.versionGroupId, versionGroupId);
+          const parentMessageId = message.parentMessageId
+            ? messageIds.get(message.parentMessageId)
+            : null;
+          if (message.parentMessageId && !parentMessageId) {
+            throw new ConflictException('Invalid message parent in fork path');
+          }
+          await tx.chatHistory.create({
+            data: {
+              id: newId,
+              sessionId: forked.id,
+              parentMessageId,
+              versionGroupId,
+              role: message.role,
+              content: message.content,
+              sources: message.sources as Prisma.InputJsonValue,
+              answerMode: message.answerMode,
+              status: message.status,
+            },
+          });
+          messageIds.set(message.id, newId);
+        }
+
+        if (attached.length) {
+          await tx.sessionDocument.createMany({
+            data: attached.map(({ documentId }) => ({
+              sessionId: forked.id,
+              documentId,
+            })),
+          });
+        }
+        await tx.chatSession.update({
+          where: { id: forked.id },
+          data: { activeLeafMessageId: messageIds.get(body.messageId) },
+        });
+        return {
+          message: Messages.create('Chat session fork'),
+          data: { id: forked.id, title: forked.title ?? title },
+        };
+      },
+      { timeout: 30_000 },
+    );
+  }
+
+  async activate(
+    userId: string,
+    messageId: string,
+  ): Promise<WebResponse<{ activeLeafMessageId: string }>> {
+    return this.prisma.$transaction(async (tx) => {
+      const message = await tx.chatHistory.findUnique({
+        where: { id: messageId },
+        select: { sessionId: true, deletedAt: true },
+      });
+      if (!message || message.deletedAt)
+        throw new NotFoundException(ErrorMessage.notFound('Chat message'));
+      const session = await this.lockSession(tx, userId, message.sessionId);
+      await this.assertNoGeneration(tx, session.activeLeafMessageId);
+      const target = await tx.chatHistory.findFirst({
+        where: { id: messageId, sessionId: session.id, deletedAt: null },
+        select: { status: true },
+      });
+      if (!target)
+        throw new NotFoundException(ErrorMessage.notFound('Chat message'));
+      if (target.status !== ChatHistoryStatus.COMPLETED) {
+        throw new ConflictException(
+          'Only completed message versions can be activated',
+        );
+      }
+
+      const [leaf] = await tx.$queryRaw<{ id: string }[]>`
+        WITH RECURSIVE descendants AS (
+          SELECT id, created_at AS "createdAt", 0 AS depth, ARRAY[id] AS visited
+          FROM chat_history
+          WHERE id = ${messageId}::uuid AND session_id = ${session.id}::uuid
+            AND deleted_at IS NULL AND status = 'completed'
+          UNION ALL
+          SELECT h.id, h.created_at, d.depth + 1, d.visited || h.id
+          FROM chat_history h
+          JOIN descendants d ON h.parent_message_id = d.id
+          WHERE h.session_id = ${session.id}::uuid
+            AND h.deleted_at IS NULL AND h.status = 'completed'
+            AND NOT (h.id = ANY(d.visited))
+        )
+        SELECT id FROM descendants
+        ORDER BY depth DESC, "createdAt" DESC NULLS LAST, id DESC LIMIT 1
+      `;
+      if (!leaf) throw new ConflictException('Selected branch is unavailable');
+      await tx.chatSession.update({
+        where: { id: session.id },
+        data: { activeLeafMessageId: leaf.id, lastMessageAt: new Date() },
+      });
+      return {
+        message: Messages.update('Active chat version'),
+        data: { activeLeafMessageId: leaf.id },
+      };
+    });
+  }
+
   async toggleFeedback(
     userId: string,
     messageId: string,
@@ -286,6 +492,309 @@ export class ChatService {
     };
   }
 
+  private async prepareSend(
+    userId: string,
+    body: SendChatDTO,
+  ): Promise<PreparedChat> {
+    const model = this.config.getOrThrow<string>('GROQ_CHAT_MODEL');
+
+    // Validate Document mode
+    if (body.answerMode === 'document_only' && !body.documentIds?.length) {
+      throw new BadRequestException(
+        'Document mode requires at least one document',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      let session: Pick<LockedSession, 'id' | 'activeLeafMessageId'>;
+
+      if (body.sessionId) {
+        session = await this.lockSession(tx, userId, body.sessionId);
+      } else {
+        // Create new session
+        session = await tx.chatSession.create({
+          data: {
+            userId,
+            title: body.question.slice(0, 100),
+            answerMode: body.answerMode,
+          },
+          select: {
+            id: true,
+            activeLeafMessageId: true,
+          },
+        });
+      }
+
+      await this.assertNoGeneration(tx, session.activeLeafMessageId);
+
+      // Synchronize documents w session document
+      const documentIds = body.documentIds ?? [];
+      await this.attachDocuments(tx, userId, session.id, documentIds);
+
+      // Get history for context
+      const history = await this.getHistory(
+        tx,
+        session.id,
+        session.activeLeafMessageId,
+      );
+
+      const userMessage = await tx.chatHistory.create({
+        data: {
+          sessionId: session.id,
+          parentMessageId: session.activeLeafMessageId,
+          role: 'user',
+          content: body.question,
+          answerMode: body.answerMode,
+          status: ChatHistoryStatus.COMPLETED,
+        },
+        select: { id: true },
+      });
+
+      const { assistantId, completionId } = await this.createStreamingAssistant(
+        tx,
+        {
+          sessionId: session.id,
+          parentMessageId: userMessage.id,
+          answerMode: body.answerMode,
+          model,
+        },
+      );
+
+      await tx.chatSession.update({
+        where: { id: session.id },
+        data: {
+          answerMode: body.answerMode,
+          activeLeafMessageId: assistantId,
+          lastMessageAt: new Date(),
+        },
+        select: { id: true },
+      });
+
+      return {
+        sessionId: session.id,
+        assistantId,
+        completionId,
+        documentIds,
+        history,
+        model,
+        question: body.question,
+        answerMode: body.answerMode,
+        mode: body.mode,
+      };
+    });
+  }
+
+  private async prepareEdit(
+    userId: string,
+    messageId: string,
+    body: SendChatDTO,
+  ): Promise<PreparedChat> {
+    if (!body.sessionId)
+      throw new BadRequestException('sessionId is required for editing');
+    const model = this.config.getOrThrow<string>('GROQ_CHAT_MODEL');
+    return this.prisma.$transaction(async (tx) => {
+      const session = await this.lockSession(tx, userId, body.sessionId!);
+      await this.assertNoGeneration(tx, session.activeLeafMessageId);
+      const original = await tx.chatHistory.findFirst({
+        where: { id: messageId, sessionId: session.id, deletedAt: null },
+        select: {
+          role: true,
+          status: true,
+          parentMessageId: true,
+          versionGroupId: true,
+        },
+      });
+      if (!original)
+        throw new NotFoundException(ErrorMessage.notFound('Chat message'));
+      if (
+        original.role !== 'user' ||
+        original.status !== ChatHistoryStatus.COMPLETED
+      ) {
+        throw new ConflictException(
+          'Only completed user messages can be edited',
+        );
+      }
+      const documentIds = body.documentIds ?? [];
+      const answerMode = body.answerMode ?? 'general';
+      if (answerMode === 'document_only' && !documentIds.length) {
+        throw new BadRequestException(
+          'Document mode requires at least one document',
+        );
+      }
+      await this.attachDocuments(tx, userId, session.id, documentIds);
+
+      const history = await this.getHistory(
+        tx,
+        session.id,
+        original.parentMessageId,
+      );
+      const editedUser = await tx.chatHistory.create({
+        data: {
+          sessionId: session.id,
+          parentMessageId: original.parentMessageId,
+          versionGroupId: original.versionGroupId,
+          role: 'user',
+          content: body.question,
+          answerMode,
+          status: ChatHistoryStatus.COMPLETED,
+        },
+        select: { id: true },
+      });
+      const { assistantId, completionId } = await this.createStreamingAssistant(
+        tx,
+        {
+          sessionId: session.id,
+          parentMessageId: editedUser.id,
+          answerMode,
+          model,
+        },
+      );
+      await tx.chatSession.update({
+        where: { id: session.id },
+        data: {
+          answerMode,
+          activeLeafMessageId: assistantId,
+          lastMessageAt: new Date(),
+        },
+      });
+      return {
+        sessionId: session.id,
+        assistantId,
+        completionId,
+        question: body.question,
+        answerMode,
+        mode: body.mode,
+        documentIds,
+        history,
+        model,
+        previousActiveLeafMessageId: session.activeLeafMessageId,
+      };
+    });
+  }
+
+  private async prepareRegenerate(
+    userId: string,
+    messageId: string,
+    body: RegenerateChatDTO,
+  ): Promise<PreparedChat> {
+    const model = this.config.getOrThrow<string>('GROQ_CHAT_MODEL');
+    return this.prisma.$transaction(async (tx) => {
+      const message = await tx.chatHistory.findUnique({
+        where: { id: messageId },
+        select: { sessionId: true, deletedAt: true },
+      });
+      if (!message || message.deletedAt) {
+        throw new NotFoundException(ErrorMessage.notFound('Chat message'));
+      }
+      const session = await this.lockSession(tx, userId, message.sessionId);
+      await this.assertNoGeneration(tx, session.activeLeafMessageId);
+
+      const original = await tx.chatHistory.findFirst({
+        where: { id: messageId, sessionId: session.id, deletedAt: null },
+        select: {
+          role: true,
+          status: true,
+          parentMessageId: true,
+          versionGroupId: true,
+          answerMode: true,
+        },
+      });
+      if (!original)
+        throw new NotFoundException(ErrorMessage.notFound('Chat message'));
+      if (
+        original.role !== 'assistant' ||
+        original.status !== ChatHistoryStatus.COMPLETED
+      ) {
+        throw new ConflictException(
+          'Only completed assistant messages can be regenerated',
+        );
+      }
+      if (session.activeLeafMessageId !== messageId) {
+        throw new ConflictException(
+          'Only the active assistant answer can be regenerated',
+        );
+      }
+      const question = original.parentMessageId
+        ? await tx.chatHistory.findFirst({
+            where: {
+              id: original.parentMessageId,
+              sessionId: session.id,
+              deletedAt: null,
+            },
+            select: {
+              content: true,
+              role: true,
+              status: true,
+              parentMessageId: true,
+              answerMode: true,
+            },
+          })
+        : null;
+      if (
+        !question ||
+        question.role !== 'user' ||
+        question.status !== ChatHistoryStatus.COMPLETED
+      ) {
+        throw new ConflictException('Original user question is unavailable');
+      }
+
+      const attached = await tx.sessionDocument.findMany({
+        where: {
+          sessionId: session.id,
+          document: { userId, deletedAt: null, status: DocumentStatus.READY },
+        },
+        select: { documentId: true },
+      });
+      const documentIds = attached.map(({ documentId }) => documentId);
+      const answerMode =
+        original.answerMode ??
+        question.answerMode ??
+        session.answerMode ??
+        'general';
+      if (answerMode !== 'general' && answerMode !== 'document_only') {
+        throw new BadRequestException(
+          'Unsupported answer mode on original message',
+        );
+      }
+      if (answerMode === 'document_only' && documentIds.length === 0) {
+        throw new BadRequestException(
+          'Document mode requires at least one ready document',
+        );
+      }
+      const history = await this.getHistory(
+        tx,
+        session.id,
+        question.parentMessageId,
+      );
+      const { assistantId, completionId } = await this.createStreamingAssistant(
+        tx,
+        {
+          sessionId: session.id,
+          parentMessageId: original.parentMessageId,
+          versionGroupId: original.versionGroupId,
+          answerMode,
+          model,
+        },
+      );
+      await tx.chatSession.update({
+        where: { id: session.id },
+        data: { activeLeafMessageId: assistantId, lastMessageAt: new Date() },
+      });
+      return {
+        sessionId: session.id,
+        assistantId,
+        completionId,
+        documentIds,
+        history,
+        model,
+        question: question.content,
+        answerMode,
+        mode: body.mode,
+        previousActiveLeafMessageId: messageId,
+      };
+    });
+  }
+
   private async lockSession(
     tx: Prisma.TransactionClient,
     userId: string,
@@ -413,515 +922,6 @@ export class ChatService {
     });
 
     return { assistantId: assistant.id, completionId: completion.id };
-  }
-
-  async fork(
-    userId: string,
-    sessionId: string,
-    body: ForkChatDTO,
-  ): Promise<WebResponse<ForkChatResDTO>> {
-    return this.prisma.$transaction(
-      async (tx) => {
-        const original = await this.lockSession(tx, userId, sessionId);
-        const target = await tx.chatHistory.findFirst({
-          where: { id: body.messageId, sessionId, deletedAt: null },
-          select: { id: true, status: true },
-        });
-        if (!target)
-          throw new NotFoundException(ErrorMessage.notFound('Chat message'));
-        if (target.status !== ChatHistoryStatus.COMPLETED) {
-          throw new ConflictException('Only completed messages can be forked');
-        }
-
-        const path = await tx.$queryRaw<ForkMessage[]>`
-        WITH RECURSIVE ancestors AS (
-          SELECT id, parent_message_id, version_group_id, role, content,
-                 sources, answer_mode, status, ARRAY[id] AS visited, 0 AS depth
-          FROM chat_history
-          WHERE id = ${body.messageId}::uuid AND session_id = ${sessionId}::uuid
-            AND deleted_at IS NULL
-          UNION ALL
-          SELECT h.id, h.parent_message_id, h.version_group_id, h.role, h.content,
-                 h.sources, h.answer_mode, h.status, a.visited || h.id, a.depth + 1
-          FROM chat_history h
-          JOIN ancestors a ON h.id = a.parent_message_id
-          WHERE h.session_id = ${sessionId}::uuid AND h.deleted_at IS NULL
-            AND NOT (h.id = ANY(a.visited))
-        )
-        SELECT id, parent_message_id AS "parentMessageId",
-               version_group_id AS "versionGroupId", role, content, sources,
-               answer_mode AS "answerMode", UPPER(status::text) AS status
-        FROM ancestors ORDER BY depth DESC
-      `;
-        if (!path.length || path[0].parentMessageId !== null) {
-          throw new ConflictException('Cannot fork an incomplete message path');
-        }
-
-        const attached = await tx.sessionDocument.findMany({
-          where: { sessionId },
-          select: { documentId: true },
-        });
-        const documentIds = attached.map(({ documentId }) => documentId);
-        if (documentIds.length) {
-          const count = await tx.document.count({
-            where: { id: { in: documentIds }, userId },
-          });
-          if (count !== documentIds.length) {
-            throw new ConflictException(
-              'Session contains inaccessible documents',
-            );
-          }
-        }
-
-        const title = `Fork → ${original.title ?? 'New Chat'}`.slice(0, 255);
-        const forked = await tx.chatSession.create({
-          data: {
-            userId,
-            title,
-            answerMode: original.answerMode,
-            lastMessageAt: new Date(),
-          },
-          select: { id: true, title: true },
-        });
-
-        const messageIds = new Map<string, string>();
-        const versionGroups = new Map<string, string>();
-        for (const message of path) {
-          const newId = randomUUID();
-          const versionGroupId =
-            versionGroups.get(message.versionGroupId) ?? randomUUID();
-          versionGroups.set(message.versionGroupId, versionGroupId);
-          const parentMessageId = message.parentMessageId
-            ? messageIds.get(message.parentMessageId)
-            : null;
-          if (message.parentMessageId && !parentMessageId) {
-            throw new ConflictException('Invalid message parent in fork path');
-          }
-          await tx.chatHistory.create({
-            data: {
-              id: newId,
-              sessionId: forked.id,
-              parentMessageId,
-              versionGroupId,
-              role: message.role,
-              content: message.content,
-              sources: message.sources as Prisma.InputJsonValue,
-              answerMode: message.answerMode,
-              status: message.status,
-            },
-          });
-          messageIds.set(message.id, newId);
-        }
-
-        if (attached.length) {
-          await tx.sessionDocument.createMany({
-            data: attached.map(({ documentId }) => ({
-              sessionId: forked.id,
-              documentId,
-            })),
-          });
-        }
-        await tx.chatSession.update({
-          where: { id: forked.id },
-          data: { activeLeafMessageId: messageIds.get(body.messageId) },
-        });
-        return {
-          message: Messages.create('Chat session fork'),
-          data: { id: forked.id, title: forked.title ?? title },
-        };
-      },
-      { timeout: 30_000 },
-    );
-  }
-
-  private async prepareRegenerate(
-    userId: string,
-    messageId: string,
-    body: RegenerateChatDTO,
-  ): Promise<PreparedChat> {
-    const model = this.config.getOrThrow<string>('GROQ_CHAT_MODEL');
-    return this.prisma.$transaction(async (tx) => {
-      const message = await tx.chatHistory.findUnique({
-        where: { id: messageId },
-        select: { sessionId: true, deletedAt: true },
-      });
-      if (!message || message.deletedAt) {
-        throw new NotFoundException(ErrorMessage.notFound('Chat message'));
-      }
-      const session = await this.lockSession(tx, userId, message.sessionId);
-      await this.assertNoGeneration(tx, session.activeLeafMessageId);
-
-      const original = await tx.chatHistory.findFirst({
-        where: { id: messageId, sessionId: session.id, deletedAt: null },
-        select: {
-          role: true,
-          status: true,
-          parentMessageId: true,
-          versionGroupId: true,
-          answerMode: true,
-        },
-      });
-      if (!original)
-        throw new NotFoundException(ErrorMessage.notFound('Chat message'));
-      if (
-        original.role !== 'assistant' ||
-        original.status !== ChatHistoryStatus.COMPLETED
-      ) {
-        throw new ConflictException(
-          'Only completed assistant messages can be regenerated',
-        );
-      }
-      if (session.activeLeafMessageId !== messageId) {
-        throw new ConflictException(
-          'Only the active assistant answer can be regenerated',
-        );
-      }
-      const question = original.parentMessageId
-        ? await tx.chatHistory.findFirst({
-            where: {
-              id: original.parentMessageId,
-              sessionId: session.id,
-              deletedAt: null,
-            },
-            select: {
-              content: true,
-              role: true,
-              status: true,
-              parentMessageId: true,
-              answerMode: true,
-            },
-          })
-        : null;
-      if (
-        !question ||
-        question.role !== 'user' ||
-        question.status !== ChatHistoryStatus.COMPLETED
-      ) {
-        throw new ConflictException('Original user question is unavailable');
-      }
-
-      const attached = await tx.sessionDocument.findMany({
-        where: {
-          sessionId: session.id,
-          document: { userId, deletedAt: null, status: DocumentStatus.READY },
-        },
-        select: { documentId: true },
-      });
-      const documentIds = attached.map(({ documentId }) => documentId);
-      const answerMode =
-        original.answerMode ??
-        question.answerMode ??
-        session.answerMode ??
-        'general';
-      if (answerMode !== 'general' && answerMode !== 'document_only') {
-        throw new BadRequestException(
-          'Unsupported answer mode on original message',
-        );
-      }
-      if (answerMode === 'document_only' && documentIds.length === 0) {
-        throw new BadRequestException(
-          'Document mode requires at least one ready document',
-        );
-      }
-      const history = await this.getHistory(
-        tx,
-        session.id,
-        question.parentMessageId,
-      );
-      const { assistantId, completionId } = await this.createStreamingAssistant(
-        tx,
-        {
-          sessionId: session.id,
-          parentMessageId: original.parentMessageId,
-          versionGroupId: original.versionGroupId,
-          answerMode,
-          model,
-        },
-      );
-      await tx.chatSession.update({
-        where: { id: session.id },
-        data: { activeLeafMessageId: assistantId, lastMessageAt: new Date() },
-      });
-      return {
-        sessionId: session.id,
-        assistantId,
-        completionId,
-        documentIds,
-        history,
-        model,
-        question: question.content,
-        answerMode,
-        mode: body.mode,
-        previousActiveLeafMessageId: messageId,
-      };
-    });
-  }
-
-  async regenerate(
-    userId: string,
-    messageId: string,
-    body: RegenerateChatDTO,
-  ): Promise<Observable<SendChatEvent>> {
-    return this.streamResponse(
-      userId,
-      await this.prepareRegenerate(userId, messageId, body),
-    );
-  }
-
-  private async prepareEdit(
-    userId: string,
-    messageId: string,
-    body: SendChatDTO,
-  ): Promise<PreparedChat> {
-    if (!body.sessionId)
-      throw new BadRequestException('sessionId is required for editing');
-    const model = this.config.getOrThrow<string>('GROQ_CHAT_MODEL');
-    return this.prisma.$transaction(async (tx) => {
-      const session = await this.lockSession(tx, userId, body.sessionId!);
-      await this.assertNoGeneration(tx, session.activeLeafMessageId);
-      const original = await tx.chatHistory.findFirst({
-        where: { id: messageId, sessionId: session.id, deletedAt: null },
-        select: {
-          role: true,
-          status: true,
-          parentMessageId: true,
-          versionGroupId: true,
-        },
-      });
-      if (!original)
-        throw new NotFoundException(ErrorMessage.notFound('Chat message'));
-      if (
-        original.role !== 'user' ||
-        original.status !== ChatHistoryStatus.COMPLETED
-      ) {
-        throw new ConflictException(
-          'Only completed user messages can be edited',
-        );
-      }
-      const documentIds = body.documentIds ?? [];
-      const answerMode = body.answerMode ?? 'general';
-      if (answerMode === 'document_only' && !documentIds.length) {
-        throw new BadRequestException(
-          'Document mode requires at least one document',
-        );
-      }
-      await this.attachDocuments(tx, userId, session.id, documentIds);
-
-      const history = await this.getHistory(
-        tx,
-        session.id,
-        original.parentMessageId,
-      );
-      const editedUser = await tx.chatHistory.create({
-        data: {
-          sessionId: session.id,
-          parentMessageId: original.parentMessageId,
-          versionGroupId: original.versionGroupId,
-          role: 'user',
-          content: body.question,
-          answerMode,
-          status: ChatHistoryStatus.COMPLETED,
-        },
-        select: { id: true },
-      });
-      const { assistantId, completionId } = await this.createStreamingAssistant(
-        tx,
-        {
-          sessionId: session.id,
-          parentMessageId: editedUser.id,
-          answerMode,
-          model,
-        },
-      );
-      await tx.chatSession.update({
-        where: { id: session.id },
-        data: {
-          answerMode,
-          activeLeafMessageId: assistantId,
-          lastMessageAt: new Date(),
-        },
-      });
-      return {
-        sessionId: session.id,
-        assistantId,
-        completionId,
-        question: body.question,
-        answerMode,
-        mode: body.mode,
-        documentIds,
-        history,
-        model,
-        previousActiveLeafMessageId: session.activeLeafMessageId,
-      };
-    });
-  }
-
-  async edit(
-    userId: string,
-    messageId: string,
-    body: SendChatDTO,
-  ): Promise<Observable<SendChatEvent>> {
-    return this.streamResponse(
-      userId,
-      await this.prepareEdit(userId, messageId, body),
-    );
-  }
-
-  async activate(
-    userId: string,
-    messageId: string,
-  ): Promise<WebResponse<{ activeLeafMessageId: string }>> {
-    return this.prisma.$transaction(async (tx) => {
-      const message = await tx.chatHistory.findUnique({
-        where: { id: messageId },
-        select: { sessionId: true, deletedAt: true },
-      });
-      if (!message || message.deletedAt)
-        throw new NotFoundException(ErrorMessage.notFound('Chat message'));
-      const session = await this.lockSession(tx, userId, message.sessionId);
-      await this.assertNoGeneration(tx, session.activeLeafMessageId);
-      const target = await tx.chatHistory.findFirst({
-        where: { id: messageId, sessionId: session.id, deletedAt: null },
-        select: { status: true },
-      });
-      if (!target)
-        throw new NotFoundException(ErrorMessage.notFound('Chat message'));
-      if (target.status !== ChatHistoryStatus.COMPLETED) {
-        throw new ConflictException(
-          'Only completed message versions can be activated',
-        );
-      }
-
-      const [leaf] = await tx.$queryRaw<{ id: string }[]>`
-        WITH RECURSIVE descendants AS (
-          SELECT id, created_at AS "createdAt", 0 AS depth, ARRAY[id] AS visited
-          FROM chat_history
-          WHERE id = ${messageId}::uuid AND session_id = ${session.id}::uuid
-            AND deleted_at IS NULL AND status = 'completed'
-          UNION ALL
-          SELECT h.id, h.created_at, d.depth + 1, d.visited || h.id
-          FROM chat_history h
-          JOIN descendants d ON h.parent_message_id = d.id
-          WHERE h.session_id = ${session.id}::uuid
-            AND h.deleted_at IS NULL AND h.status = 'completed'
-            AND NOT (h.id = ANY(d.visited))
-        )
-        SELECT id FROM descendants
-        ORDER BY depth DESC, "createdAt" DESC NULLS LAST, id DESC LIMIT 1
-      `;
-      if (!leaf) throw new ConflictException('Selected branch is unavailable');
-      await tx.chatSession.update({
-        where: { id: session.id },
-        data: { activeLeafMessageId: leaf.id, lastMessageAt: new Date() },
-      });
-      return {
-        message: Messages.update('Active chat version'),
-        data: { activeLeafMessageId: leaf.id },
-      };
-    });
-  }
-
-  private async prepareSend(
-    userId: string,
-    body: SendChatDTO,
-  ): Promise<PreparedChat> {
-    const model = this.config.getOrThrow<string>('GROQ_CHAT_MODEL');
-
-    // Validate Document mode
-    if (body.answerMode === 'document_only' && !body.documentIds?.length) {
-      throw new BadRequestException(
-        'Document mode requires at least one document',
-      );
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      let session: Pick<LockedSession, 'id' | 'activeLeafMessageId'>;
-
-      if (body.sessionId) {
-        session = await this.lockSession(tx, userId, body.sessionId);
-      } else {
-        // Create new session
-        session = await tx.chatSession.create({
-          data: {
-            userId,
-            title: body.question.slice(0, 100),
-            answerMode: body.answerMode,
-          },
-          select: {
-            id: true,
-            activeLeafMessageId: true,
-          },
-        });
-      }
-
-      await this.assertNoGeneration(tx, session.activeLeafMessageId);
-
-      // Synchronize documents w session document
-      const documentIds = body.documentIds ?? [];
-      await this.attachDocuments(tx, userId, session.id, documentIds);
-
-      // Get history for context
-      const history = await this.getHistory(
-        tx,
-        session.id,
-        session.activeLeafMessageId,
-      );
-
-      const userMessage = await tx.chatHistory.create({
-        data: {
-          sessionId: session.id,
-          parentMessageId: session.activeLeafMessageId,
-          role: 'user',
-          content: body.question,
-          answerMode: body.answerMode,
-          status: ChatHistoryStatus.COMPLETED,
-        },
-        select: { id: true },
-      });
-
-      const { assistantId, completionId } = await this.createStreamingAssistant(
-        tx,
-        {
-          sessionId: session.id,
-          parentMessageId: userMessage.id,
-          answerMode: body.answerMode,
-          model,
-        },
-      );
-
-      await tx.chatSession.update({
-        where: { id: session.id },
-        data: {
-          answerMode: body.answerMode,
-          activeLeafMessageId: assistantId,
-          lastMessageAt: new Date(),
-        },
-        select: { id: true },
-      });
-
-      return {
-        sessionId: session.id,
-        assistantId,
-        completionId,
-        documentIds,
-        history,
-        model,
-        question: body.question,
-        answerMode: body.answerMode,
-        mode: body.mode,
-      };
-    });
-  }
-
-  async send(
-    userId: string,
-    body: SendChatDTO,
-  ): Promise<Observable<SendChatEvent>> {
-    // Validasi dan persistence dilakukan sebelum SSE dimulai.
-    // Kalau gagal, Nest masih bisa mengembalikan HTTP 4xx.
-    const prepared = await this.prepareSend(userId, body);
-
-    return this.streamResponse(userId, prepared);
   }
 
   private streamResponse(
