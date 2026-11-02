@@ -1,5 +1,5 @@
-import { z } from 'zod';
+import { documentSchema } from '../documents/documents.validation';
 
-export const presignUrlSchema = z.object({
-  fileName: z.string().min(1).max(255).nullable(),
+export const presignUrlSchema = documentSchema.pick({
+  fileName: true,
 });
