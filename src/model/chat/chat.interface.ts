@@ -12,6 +12,8 @@ import {
   sendChatSchema,
   chatHistorySchema,
   completionSchema,
+  forkChatSchema,
+  regenerateChatSchema,
 } from './chat.validation';
 
 export class CompletionDTO
@@ -21,6 +23,19 @@ export class CompletionDTO
 export class SendChatDTO
   extends createZodDto(sendChatSchema)
   implements z.infer<typeof sendChatSchema> {}
+
+export class ForkChatDTO
+  extends createZodDto(forkChatSchema)
+  implements z.infer<typeof forkChatSchema> {}
+
+export class RegenerateChatDTO
+  extends createZodDto(regenerateChatSchema)
+  implements z.infer<typeof regenerateChatSchema> {}
+
+export interface ForkChatResDTO {
+  id: string;
+  title: string;
+}
 
 export class ChatHistoryDTO
   extends createZodDto(chatHistorySchema)
@@ -40,15 +55,33 @@ export interface ChatDetailSourceDto {
 
 export type ChatDetailMessageDto = Pick<
   ChatHistory,
-  'id' | 'role' | 'content' | 'status' | 'createdAt'
+  | 'id'
+  | 'role'
+  | 'content'
+  | 'status'
+  | 'createdAt'
+  | 'parentMessageId'
+  | 'versionGroupId'
 > & {
   sources: ChatDetailSourceDto[];
   feedback: FeedbackType | null;
+  versionCount: number;
+  versions: {
+    id: string;
+    status: ChatHistory['status'];
+    createdAt: Date | null;
+    active: boolean;
+  }[];
 };
 
 export type FindChatDetailResDto = Pick<
   ChatSession,
-  'id' | 'title' | 'answerMode' | 'createdAt' | 'updatedAt'
+  | 'id'
+  | 'title'
+  | 'answerMode'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'activeLeafMessageId'
 > & {
   documents: ChatDetailDocumentDto[];
   messages: ChatDetailMessageDto[];
@@ -122,4 +155,8 @@ export type PreparedChat = Pick<RagInput, 'documentIds' | 'history' | 'model'> &
   Pick<ChatHistoryDTO, 'sessionId'> & {
     assistantId: ChatHistoryDTO['id'];
     completionId: CompletionDTO['id'];
+    question: string;
+    answerMode: SendChatDTO['answerMode'];
+    mode: SendChatDTO['mode'];
+    previousActiveLeafMessageId?: string | null;
   };

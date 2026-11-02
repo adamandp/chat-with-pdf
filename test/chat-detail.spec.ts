@@ -64,6 +64,8 @@ describe('ChatService.findOne', () => {
     histories = [
       {
         id: assistantMessageId,
+        parentMessageId: userMessageId,
+        versionGroupId: 'group-assistant',
         role: 'assistant',
         content: 'Revenue increased [1].',
         status: 'COMPLETED',
@@ -80,6 +82,8 @@ describe('ChatService.findOne', () => {
       },
       {
         id: userMessageId,
+        parentMessageId: null,
+        versionGroupId: 'group-user',
         role: 'user',
         content: 'Summarize the report',
         status: 'COMPLETED',
@@ -93,9 +97,28 @@ describe('ChatService.findOne', () => {
     messageIds?: { id: string }[];
     histories?: object[];
   } = {}) {
+    const versions = histories.map((history) => {
+      const row = history as {
+        id: string;
+        versionGroupId?: string;
+        status: string;
+        createdAt: Date;
+      };
+      return {
+        id: row.id,
+        versionGroupId: row.versionGroupId,
+        status: row.status,
+        createdAt: row.createdAt,
+      };
+    });
     const prisma = {
       chatSession: { findFirst: vi.fn().mockResolvedValue(session) },
-      chatHistory: { findMany: vi.fn().mockResolvedValue(histories) },
+      chatHistory: {
+        findMany: vi
+          .fn()
+          .mockResolvedValueOnce(histories)
+          .mockResolvedValueOnce(versions),
+      },
       $queryRaw: vi.fn().mockResolvedValue(messageIds),
     };
     const logger = { setContext: vi.fn(), trace: vi.fn() };
@@ -128,12 +151,13 @@ describe('ChatService.findOne', () => {
     expect(sql).toContain('WITH RECURSIVE ancestors');
     expect(sql).toContain('ORDER BY depth DESC');
 
-    expect(result.data).toEqual({
+    expect(result.data).toMatchObject({
       id: sessionId,
       title: 'Annual Report',
       answerMode: 'document_only',
       createdAt,
       updatedAt: createdAt,
+      activeLeafMessageId: assistantMessageId,
       documents: [
         {
           id: 'c14161ef-8ea9-475f-902d-d7127d6c34cc',
@@ -152,6 +176,9 @@ describe('ChatService.findOne', () => {
           createdAt,
           sources: [],
           feedback: null,
+          parentMessageId: null,
+          versionGroupId: 'group-user',
+          versionCount: 1,
         },
         {
           id: assistantMessageId,
@@ -166,6 +193,9 @@ describe('ChatService.findOne', () => {
             },
           ],
           feedback: 'LIKE',
+          parentMessageId: userMessageId,
+          versionGroupId: 'group-assistant',
+          versionCount: 1,
         },
       ],
     });
@@ -206,6 +236,8 @@ describe('ChatService.findOne', () => {
       histories: [
         {
           id: assistantMessageId,
+          parentMessageId: userMessageId,
+          versionGroupId: 'group-assistant',
           role: 'assistant',
           content: 'Answer',
           status: 'COMPLETED',
@@ -219,6 +251,8 @@ describe('ChatService.findOne', () => {
         },
         {
           id: 'old-inactive-message',
+          parentMessageId: userMessageId,
+          versionGroupId: 'group-assistant',
           role: 'assistant',
           content: 'Old branch',
           status: 'COMPLETED',
@@ -231,7 +265,7 @@ describe('ChatService.findOne', () => {
 
     const result = await service.findOne(userId, sessionId);
 
-    expect(result.data?.messages).toEqual([
+    expect(result.data?.messages).toMatchObject([
       {
         id: assistantMessageId,
         role: 'assistant',
@@ -240,6 +274,7 @@ describe('ChatService.findOne', () => {
         createdAt,
         sources: [{ documentId: 'doc-id', pageNumber: 3 }],
         feedback: 'DISLIKE',
+        versionCount: 2,
       },
     ]);
   });

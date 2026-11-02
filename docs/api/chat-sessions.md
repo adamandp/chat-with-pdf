@@ -328,4 +328,4 @@ List, update, soft delete, permanent delete and restore return **only** the foll
 
 - Session list sorts by `updatedAt`, but new chat messages update `lastMessageAt` without explicitly updating `updatedAt`.
 - Message listing fetches all branch histories rather than the active branch and does not paginate.
-- Current controllers do not offer search, pin/unpin, session-document list/attach/detach, fork, or regenerate.
+- Chat session controllers do not offer search, pin/unpin, or session-document list/attach/detach. Fork, regenerate, edit, feedback and version activation live under `/chat` (see [Chat](chat.md)).

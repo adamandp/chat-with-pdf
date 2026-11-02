@@ -70,15 +70,17 @@ List endpoints accept `?page=1&limit=10`. Both are integers from 1 through 100; 
 
 **PDF upload:** `POST /document-upload/presigned-url` → direct MinIO `PUT` → `POST /document-upload/:id/process` → `GET /document-upload/:id/progress` → `POST /chat/send`.
 
-**Chat details:** `GET /chat/:id/details` returns session metadata, documents, and active-branch messages with sources/feedback (moved from `GET /chat-sessions/:id`).
+**Chat details:** `GET /chat/:id/details` returns session metadata, documents, active-branch messages, feedback, and version navigation metadata (moved from `GET /chat-sessions/:id`).
 
-**SSE:** `POST /chat/send` emits `started`, `sources`, `token`, `done`, `error`; use fetch streaming because native `EventSource` cannot POST. Document upload progress uses `GET` SSE events `message` and `heartbeat`.
+**Chat branching and feedback:** `POST /chat/:id/fork`, `POST /chat/:messageId/feedback` (204), `POST /chat/:messageId/regenerate` (SSE), `POST /chat/:messageId/edit` (SSE), and `PATCH /chat/:messageId/activate`. See [Chat API](api/chat.md).
+
+**SSE:** `POST /chat/send`, `POST /chat/:messageId/regenerate`, and `POST /chat/:messageId/edit` emit `started`, `sources`, `token`, `done`, `error`; use fetch streaming because native `EventSource` cannot POST. Document upload progress uses `GET` SSE events `message` and `heartbeat`.
 
 ## Versioning and legacy documents
 
 These newly authored module pages describe current controllers / Zod DTOs / services / Prisma, including known defects. Legacy `docs/chat.md`, `docs/chat.openapi.json`, `docs/document-api.yaml`, and `docs/documents.openapi.json` still describe **older contracts** (e.g. `POST /chat`, snake_case request fields, `/presigned-url`). They are preserved here and should not be treated as current API truth until reconciled.
 
-Retry is explicitly a TODO stub. Notable remaining gaps include multi-session auth correctness, document upload status validation, and message regenerate/fork/feedback. See each module page for details.
+Document upload retry remains a TODO stub. Other remaining gaps include multi-session auth correctness, document upload status validation, and resuming interrupted chat streams. See each module page for details.
 
 ## Source paths audited
 

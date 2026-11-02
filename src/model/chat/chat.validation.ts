@@ -55,3 +55,9 @@ export const sendChatSchema = z
       .optional(),
   })
   .strict();
+
+export const forkChatSchema = z.object({ messageId: z.uuid() }).strict();
+
+export const regenerateChatSchema = z
+  .object({ mode: z.enum(['quick', 'pro', 'ultra']) })
+  .strict();

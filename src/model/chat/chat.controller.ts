@@ -4,6 +4,8 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
+  Post,
   Sse,
   RequestMethod,
 } from '@nestjs/common';
@@ -16,6 +18,9 @@ import {
   SendChatDTO,
   type SendChatEvent,
   type FindChatDetailResDto,
+  ForkChatDTO,
+  type ForkChatResDTO,
+  RegenerateChatDTO,
 } from './chat.interface';
 
 @Controller('chat')
@@ -36,5 +41,40 @@ export class ChatController {
     @Body() body: SendChatDTO,
   ): Promise<Observable<SendChatEvent>> {
     return this.chat.send(user.sub, body);
+  }
+
+  @Post(':id/fork')
+  fork(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ForkChatDTO,
+  ): Promise<WebResponse<ForkChatResDTO>> {
+    return this.chat.fork(user.sub, id, body);
+  }
+
+  @Sse(':messageId/regenerate', { method: RequestMethod.POST })
+  regenerate(
+    @CurrentUser() user: JwtPayload,
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @Body() body: RegenerateChatDTO,
+  ): Promise<Observable<SendChatEvent>> {
+    return this.chat.regenerate(user.sub, messageId, body);
+  }
+
+  @Sse(':messageId/edit', { method: RequestMethod.POST })
+  edit(
+    @CurrentUser() user: JwtPayload,
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @Body() body: SendChatDTO,
+  ): Promise<Observable<SendChatEvent>> {
+    return this.chat.edit(user.sub, messageId, body);
+  }
+
+  @Patch(':messageId/activate')
+  activate(
+    @CurrentUser() user: JwtPayload,
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+  ): Promise<WebResponse<{ activeLeafMessageId: string }>> {
+    return this.chat.activate(user.sub, messageId);
   }
 }
