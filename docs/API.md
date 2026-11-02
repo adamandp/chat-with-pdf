@@ -8,11 +8,11 @@
 | --- | ---: | --- |
 | Authentication & token sessions | 6 | [authentication.md](api/authentication.md) |
 | Chat sessions | 7 | [chat-sessions.md](api/chat-sessions.md) |
-| AI chat | 1 | [chat.md](api/chat.md) |
+| AI chat | 2 | [chat.md](api/chat.md) |
 | Document Upload | 4 | [document-upload.md](api/document-upload.md) |
 | Documents | 6 | [documents.md](api/documents.md) |
 | Health | 5 | [health.md](api/health.md) |
-| **Total NestJS routes** | **29** | |
+| **Total NestJS routes** | **30** | |
 
 The direct MinIO signed `PUT` described in the documents guide is **not** a NestJS endpoint.
 
@@ -69,6 +69,8 @@ List endpoints accept `?page=1&limit=10`. Both are integers from 1 through 100; 
 **Authentication:** register (optional) → login (JSON access token + refresh cookie) → protected requests → refresh as needed → logout or logout-all.
 
 **PDF upload:** `POST /document-upload/presigned-url` → direct MinIO `PUT` → `POST /document-upload/:id/process` → `GET /document-upload/:id/progress` → `POST /chat/send`.
+
+**Chat details:** `GET /chat/:id/details` returns session metadata, documents, and active-branch messages with sources/feedback (moved from `GET /chat-sessions/:id`).
 
 **SSE:** `POST /chat/send` emits `started`, `sources`, `token`, `done`, `error`; use fetch streaming because native `EventSource` cannot POST. Document upload progress uses `GET` SSE events `message` and `heartbeat`.
 

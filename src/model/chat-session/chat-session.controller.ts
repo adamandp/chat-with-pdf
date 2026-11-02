@@ -19,7 +19,6 @@ import { UpdateChatSessionDto } from './dto/update-chat-session.dto';
 import type { WebResponse } from '../../common/common.interface';
 import type {
   FindAllChatSessionResDto,
-  FindChatSessionDetailResDto,
   FindChatsResDto,
   UpdateChatSessionResDto,
 } from './chat-session.interface';
@@ -48,14 +47,6 @@ export class ChatSessionController {
     @Query() pagination: PaginationDto,
   ): Promise<WebResponse<FindAllChatSessionResDto>> {
     return this.chatSessionService.findDeleted(user.sub, pagination);
-  }
-
-  @Get(':id')
-  findOne(
-    @CurrentUser() user: JwtPayload,
-    @Param('id', new ParseUUIDPipe()) id: string,
-  ): Promise<WebResponse<FindChatSessionDetailResDto>> {
-    return this.chatSessionService.findOne(user.sub, id);
   }
 
   @Get(':id/chats')

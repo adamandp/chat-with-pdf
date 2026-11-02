@@ -1,6 +1,6 @@
 # Chat Sessions API Reference
 
-Eight endpoints for managing conversation sessions. Every endpoint requires `Authorization: Bearer <access-jwt>`; no refresh cookie is required.
+Seven endpoints for managing conversation sessions. Every endpoint requires `Authorization: Bearer <access-jwt>`; no refresh cookie is required. Chat details now live at [`GET /chat/:id/details`](chat.md#get-chat-details).
 
 ## Endpoint index
 
@@ -8,7 +8,6 @@ Eight endpoints for managing conversation sessions. Every endpoint requires `Aut
 | --- | --- | --- |
 | GET | `/chat-sessions` | List active sessions |
 | GET | `/chat-sessions/deleted` | List soft-deleted sessions |
-| GET | `/chat-sessions/:id` | Get session details, attached documents, active messages, and feedback |
 | GET | `/chat-sessions/:id/chats` | Legacy: get all stored messages, including inactive branches |
 | PATCH | `/chat-sessions/:id` | Rename a session |
 | DELETE | `/chat-sessions/:id` | Soft-delete a session |
@@ -111,88 +110,7 @@ Authorization: Bearer <access-jwt>
 
 **Note:** only owned sessions where `deletedAt` is not null appear.
 
-## 3. Get Chat Session Detail
-
-**GET /chat-sessions/:id**
-
-### Request
-
-**Headers:** `Authorization: Bearer <access-jwt>`. **Cookies:** none. **Body:** none.
-
-| Parameter | Location | Type | Required | Validation |
-| --- | --- | --- | --- | --- |
-| `id` | Path | UUID | Yes | Existing active chat session belonging to caller |
-
-```http
-GET /chat-sessions/6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6
-Authorization: Bearer <access-jwt>
-```
-
-### Success response — 200 OK
-
-```json
-{
-  "message": "📦 Chat session retrieved successfully! Smooth sailing! 😎",
-  "data": {
-    "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
-    "title": "Financial Analysis",
-    "answerMode": "document_only",
-    "createdAt": "2026-10-30T11:00:00.000Z",
-    "updatedAt": "2026-10-30T11:05:00.000Z",
-    "documents": [
-      {
-        "id": "c14161ef-8ea9-475f-902d-d7127d6c34cc",
-        "fileName": "Annual Report.pdf",
-        "pageCount": 120,
-        "status": "READY",
-        "deletedAt": null
-      }
-    ],
-    "messages": [
-      {
-        "id": "234726de-85ef-4d6f-95a1-eb420ac0cc01",
-        "role": "user",
-        "content": "Summarize the financial report.",
-        "status": "COMPLETED",
-        "createdAt": "2026-10-30T11:00:00.000Z",
-        "sources": [],
-        "feedback": null
-      },
-      {
-        "id": "5132f3ab-b51d-4356-b091-9e70515bc351",
-        "role": "assistant",
-        "content": "Revenue increased [1].",
-        "status": "COMPLETED",
-        "createdAt": "2026-10-30T11:00:10.000Z",
-        "sources": [
-          {
-            "documentId": "c14161ef-8ea9-475f-902d-d7127d6c34cc",
-            "pageNumber": 12
-          }
-        ],
-        "feedback": "LIKE"
-      }
-    ]
-  }
-}
-```
-
-### Error responses
-
-| Status | Condition |
-| --- | --- |
-| 400 | Malformed session UUID |
-| 401 | Invalid or missing access JWT |
-| 404 | Session absent, deleted, or owned by another user |
-
-**Notes:**
-
-- `documents` comes from `SessionDocument → Document`, ordered by attachment time, then document ID. `deletedAt` lets the frontend disable previews of deleted files. Request a fresh signed download URL through `GET /documents/:id` when opening a PDF.
-- `messages` contains only the active lineage from the root message through `ChatSession.activeLeafMessageId`, in conversation order. Inactive branches and soft-deleted messages are excluded. All messages in that lineage are returned; there is no pagination yet.
-- `feedback` comes from `ChatFeedback.type` and is `LIKE`, `DISLIKE`, or `null`, matching Prisma's enum. For user messages, it is always `null`.
-- `sources` is reduced to `documentId` and `pageNumber` for PDF citations. Other internal chat-history fields are omitted.
-
-## 4. List Chat Messages (Legacy)
+## 3. List Chat Messages (Legacy)
 
 **GET /chat-sessions/:id/chats**
 
@@ -241,9 +159,9 @@ Authorization: Bearer <access-jwt>
 | 401 | Unauthorized |
 | 404 | Session absent, deleted, or owned by another user |
 
-**Notes:** retained for existing clients during migration to `GET /chat-sessions/:id`. Messages are sorted by creation time ascending and ID ascending. This endpoint returns the **entire stored message collection**, not the active branch selected by `activeLeafMessageId`. There is no pagination. `sources` is JSON; `status` enum values are `PENDING`, `STREAMING`, `COMPLETED`, `FAILED`, `CANCELLED`.
+**Notes:** retained for existing clients during migration to `GET /chat/:id/details`. Messages are sorted by creation time ascending and ID ascending. This endpoint returns the **entire stored message collection**, not the active branch selected by `activeLeafMessageId`. There is no pagination. `sources` is JSON; `status` enum values are `PENDING`, `STREAMING`, `COMPLETED`, `FAILED`, `CANCELLED`.
 
-## 5. Rename Chat Session
+## 4. Rename Chat Session
 
 **PATCH /chat-sessions/:id**
 
@@ -290,7 +208,7 @@ Content-Type: application/json
 | 401 | Unauthorized |
 | 404 | Active owned session not found |
 
-## 6. Soft Delete Chat Session
+## 5. Soft Delete Chat Session
 
 **DELETE /chat-sessions/:id**
 
@@ -325,7 +243,7 @@ Content-Type: application/json
 
 **Note:** soft delete leaves messages and related documents intact.
 
-## 7. Permanently Delete Chat Session
+## 6. Permanently Delete Chat Session
 
 **DELETE /chat-sessions/:id/permanent**
 
@@ -360,7 +278,7 @@ Content-Type: application/json
 
 **Notes:** the service deletes feedback, completion records, chat history, session-document join records and the session in a transaction. It does not delete the PDF documents themselves.
 
-## 8. Restore Chat Session
+## 7. Restore Chat Session
 
 **POST /chat-sessions/:id/restore**
 
@@ -404,7 +322,7 @@ List, update, soft delete, permanent delete and restore return **only** the foll
 | `updatedAt` | ISO timestamp / null | Last modification timestamp |
 
 `GET /chat-sessions/:id/chats` returns full chat-history records including `content`, `role`, `parentMessageId`, `sources`, and status.
-`GET /chat-sessions/:id` instead returns a compact combined detail for the chat screen.
+`GET /chat/:id/details` instead returns a compact combined detail for the chat screen.
 
 ## Known issues and missing endpoints
 

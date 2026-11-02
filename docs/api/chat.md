@@ -1,11 +1,12 @@
 # Chat AI API Reference
 
-One authenticated chat generation endpoint using **POST Server-Sent Events** (SSE). This is not a normal JSON response.
+Two authenticated endpoints: one JSON chat detail endpoint and one **POST Server-Sent Events** (SSE) generation endpoint.
 
 ## Endpoint index
 
 | Method | Endpoint | Authentication | Description |
 | --- | --- | --- | --- |
+| GET | `/chat/:id/details` | Bearer access token | Get session details, attached documents, active messages, and feedback |
 | POST | `/chat/send` | Bearer access token | Generate RAG answer as SSE |
 
 ## 1. Send Chat Message
@@ -105,6 +106,90 @@ Errors thrown **before** SSE begins use HTTP status codes. Errors occurring **af
 - If answer mode is document-only and no evidence exists, the service returns a fixed explanation token rather than calling Groq.
 - `mode` is currently included in `done` but does **not** change model, inference settings, or retrieval pipeline.
 - The DTO uses `.default('quick').optional()` and `.default('general').optional()`; because outer optional can bypass the inner default, omitted values should not be assumed to be filled. In particular `done.mode` can be omitted by JSON serialization.
+
+## 2. Get Chat Details
+
+**GET /chat/:id/details**
+
+Returns session metadata, attached PDFs, and the conversation along the currently active message branch. This replaces `GET /chat-sessions/:id`; the original route is no longer available.
+
+### Request
+
+**Headers:** `Authorization: Bearer <access-jwt>`. **Cookies:** none. **Body:** none.
+
+| Parameter | Location | Type | Required | Validation |
+| --- | --- | --- | --- | --- |
+| `id` | Path | UUID | Yes | Existing active chat session belonging to caller |
+
+```http
+GET /chat/6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6/details
+Authorization: Bearer <access-jwt>
+```
+
+### Success response — 200 OK
+
+```json
+{
+  "message": "📦 Chat session retrieved successfully! Smooth sailing! 😎",
+  "data": {
+    "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
+    "title": "Financial Analysis",
+    "answerMode": "document_only",
+    "createdAt": "2026-10-30T11:00:00.000Z",
+    "updatedAt": "2026-10-30T11:05:00.000Z",
+    "documents": [
+      {
+        "id": "c14161ef-8ea9-475f-902d-d7127d6c34cc",
+        "fileName": "Annual Report.pdf",
+        "pageCount": 120,
+        "status": "READY",
+        "deletedAt": null
+      }
+    ],
+    "messages": [
+      {
+        "id": "234726de-85ef-4d6f-95a1-eb420ac0cc01",
+        "role": "user",
+        "content": "Summarize the financial report.",
+        "status": "COMPLETED",
+        "createdAt": "2026-10-30T11:00:00.000Z",
+        "sources": [],
+        "feedback": null
+      },
+      {
+        "id": "5132f3ab-b51d-4356-b091-9e70515bc351",
+        "role": "assistant",
+        "content": "Revenue increased [1].",
+        "status": "COMPLETED",
+        "createdAt": "2026-10-30T11:00:10.000Z",
+        "sources": [
+          {
+            "documentId": "c14161ef-8ea9-475f-902d-d7127d6c34cc",
+            "pageNumber": 12
+          }
+        ],
+        "feedback": "LIKE"
+      }
+    ]
+  }
+}
+```
+
+### Error responses
+
+| Status | Condition |
+| --- | --- |
+| 400 | Malformed session UUID |
+| 401 | Invalid or missing access JWT |
+| 404 | Session absent, deleted, or owned by another user |
+
+**Notes:**
+
+- `id` identifies a **ChatSession**, not a message.
+- `documents` comes from `SessionDocument → Document`, ordered by attachment time, then document ID. `deletedAt` lets the frontend disable previews of deleted files. Request a fresh signed download URL through `GET /documents/:id` when opening a PDF.
+- `messages` contains only the active lineage from the root message through `ChatSession.activeLeafMessageId`, in conversation order. Inactive branches and soft-deleted messages are excluded. All messages in that lineage are returned; there is no pagination yet.
+- `feedback` comes from `ChatFeedback.type` and is `LIKE`, `DISLIKE`, or `null`, matching Prisma's enum. For user messages, it is always `null`.
+- `sources` is reduced to `documentId` and `pageNumber` for PDF citations. Other internal chat-history fields are omitted.
 
 ## Known issues / missing capabilities
 

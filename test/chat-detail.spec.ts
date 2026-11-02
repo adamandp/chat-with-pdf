@@ -1,11 +1,39 @@
 import { createRequire } from 'node:module';
 
 const require = createRequire(`${process.cwd()}/test/loader.cjs`);
+const { PATH_METADATA, METHOD_METADATA } = require('@nestjs/common/constants');
+const { RequestMethod } = require('@nestjs/common');
+const { ChatService } = require('../dist/model/chat/chat.service');
+const { ChatController } = require('../dist/model/chat/chat.controller');
 const {
-  ChatSessionService,
-} = require('../dist/model/chat-session/chat-session.service');
+  ChatSessionController,
+} = require('../dist/model/chat-session/chat-session.controller');
 
-describe('ChatSessionService.findOne', () => {
+describe('Chat detail endpoint', () => {
+  it('registers GET /chat/:id/details and removes the old session detail route', () => {
+    expect(Reflect.getMetadata(PATH_METADATA, ChatController)).toBe('chat');
+    expect(
+      Reflect.getMetadata(PATH_METADATA, ChatController.prototype.findOne),
+    ).toBe(':id/details');
+    expect(
+      Reflect.getMetadata(METHOD_METADATA, ChatController.prototype.findOne),
+    ).toBe(RequestMethod.GET);
+    expect(ChatSessionController.prototype.findOne).toBeUndefined();
+  });
+
+  it('delegates the authenticated user and session id to ChatService', async () => {
+    const response = { message: 'ok', data: { messages: [] } };
+    const findOne = vi.fn().mockResolvedValue(response);
+    const controller = new ChatController({ findOne });
+
+    await expect(
+      controller.findOne({ sub: 'user-id' }, 'session-id'),
+    ).resolves.toEqual(response);
+    expect(findOne).toHaveBeenCalledExactlyOnceWith('user-id', 'session-id');
+  });
+});
+
+describe('ChatService.findOne', () => {
   const sessionId = 'f27f6302-a3d9-4e52-9011-6631aafda7f0';
   const userId = '48bc0e16-1864-49ae-9680-aaeaa094d40c';
   const userMessageId = '77e78720-5302-4494-8c37-1cae998ac46c';
@@ -71,7 +99,7 @@ describe('ChatSessionService.findOne', () => {
       $queryRaw: vi.fn().mockResolvedValue(messageIds),
     };
     const logger = { setContext: vi.fn(), trace: vi.fn() };
-    const service = new ChatSessionService(prisma, logger);
+    const service = new ChatService(prisma, { run: vi.fn() }, {}, logger);
     return { prisma, service };
   }
 

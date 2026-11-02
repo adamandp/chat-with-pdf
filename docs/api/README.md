@@ -8,10 +8,10 @@ Backend schema and DTO conventions: [Validation & DTO Rules](../rules/validation
 
 - [Authentication](authentication.md) — registration, login, profile, logout, logout-all
 - [Sessions](sessions.md) — refresh access token
-- [Chat Sessions](chat-sessions.md) — active/deleted lists, messages, rename, delete, permanent delete, restore
+- [Chat Sessions](chat-sessions.md) — active/deleted lists, legacy messages, rename, delete, permanent delete, restore
 - [Document Upload](document-upload.md) — presigned upload, background processing, progress SSE, retry TODO
 - [Documents](documents.md) — ready/deleted lists, details, soft delete, restore, permanent delete
-- [Chat](chat.md) — chat send SSE
+- [Chat](chat.md) — chat details with active messages/feedback, and chat send SSE
 - [Health](health.md) — dependency checks
 
 ## Common Rules

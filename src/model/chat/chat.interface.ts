@@ -2,6 +2,12 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import type { MessageEvent } from '@nestjs/common';
 import type { DocumentChunk } from '../../common/milvus/milvus.interface';
+import type {
+  ChatHistory,
+  ChatSession,
+  Document,
+  FeedbackType,
+} from '../../generated/prisma/client';
 import {
   sendChatSchema,
   chatHistorySchema,
@@ -21,6 +27,32 @@ export class ChatHistoryDTO
   implements z.infer<typeof chatHistorySchema> {}
 
 export type ChatHistoryContext = Pick<ChatHistoryDTO, 'role' | 'content'>;
+
+export type ChatDetailDocumentDto = Pick<
+  Document,
+  'id' | 'fileName' | 'pageCount' | 'status' | 'deletedAt'
+>;
+
+export interface ChatDetailSourceDto {
+  documentId: string;
+  pageNumber: number;
+}
+
+export type ChatDetailMessageDto = Pick<
+  ChatHistory,
+  'id' | 'role' | 'content' | 'status' | 'createdAt'
+> & {
+  sources: ChatDetailSourceDto[];
+  feedback: FeedbackType | null;
+};
+
+export type FindChatDetailResDto = Pick<
+  ChatSession,
+  'id' | 'title' | 'answerMode' | 'createdAt' | 'updatedAt'
+> & {
+  documents: ChatDetailDocumentDto[];
+  messages: ChatDetailMessageDto[];
+};
 
 export type ChatMessageState = Pick<
   ChatHistoryDTO,
@@ -58,13 +90,14 @@ export interface SendChatErrorDTO {
   message: string;
 }
 
-export type SendChatEvent = Omit<MessageEvent, 'type' | 'data'> & (
-  | { type: 'started'; data: SendChatStartedDTO }
-  | { type: 'sources'; data: SendChatSourcesDTO }
-  | { type: 'token'; data: ChatTokenDTO }
-  | { type: 'done'; data: SendChatDoneDTO }
-  | { type: 'error'; data: SendChatErrorDTO }
-);
+export type SendChatEvent = Omit<MessageEvent, 'type' | 'data'> &
+  (
+    | { type: 'started'; data: SendChatStartedDTO }
+    | { type: 'sources'; data: SendChatSourcesDTO }
+    | { type: 'token'; data: ChatTokenDTO }
+    | { type: 'done'; data: SendChatDoneDTO }
+    | { type: 'error'; data: SendChatErrorDTO }
+  );
 
 export type RagInput = Pick<SendChatDTO, 'question' | 'answerMode'> &
   Pick<CompletionDTO, 'model'> & {

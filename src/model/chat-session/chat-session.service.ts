@@ -7,33 +7,10 @@ import type { WebResponse } from '../../common/common.interface';
 import type { PaginationDto } from '../../common/common.dto';
 import type { UpdateChatSessionDto } from './dto/update-chat-session.dto';
 import type {
-  ChatSessionSourceDto,
   FindAllChatSessionResDto,
-  FindChatSessionDetailResDto,
   FindChatsResDto,
   UpdateChatSessionResDto,
 } from './chat-session.interface';
-
-function selectSources(value: unknown): ChatSessionSourceDto[] {
-  if (!Array.isArray(value)) return [];
-
-  return value.flatMap((source: unknown) => {
-    if (!source || typeof source !== 'object' || Array.isArray(source)) {
-      return [];
-    }
-
-    const { documentId, pageNumber } = source as Record<string, unknown>;
-    if (
-      typeof documentId !== 'string' ||
-      !Number.isInteger(pageNumber) ||
-      (pageNumber as number) < 1
-    ) {
-      return [];
-    }
-
-    return [{ documentId, pageNumber: pageNumber as number }];
-  });
-}
 
 @Injectable()
 export class ChatSessionService {
@@ -102,119 +79,6 @@ export class ChatSessionService {
         pageSize: limit,
         totalItems,
         totalPages: Math.ceil(totalItems / limit),
-      },
-    };
-  }
-
-  async findOne(
-    userId: string,
-    id: string,
-  ): Promise<WebResponse<FindChatSessionDetailResDto>> {
-    this.logger.trace({ userId, sessionId: id }, 'Finding chat session detail');
-
-    const session = await this.prisma.chatSession.findFirst({
-      where: { id, userId, deletedAt: null },
-      select: {
-        id: true,
-        title: true,
-        answerMode: true,
-        createdAt: true,
-        updatedAt: true,
-        activeLeafMessageId: true,
-        sessionDocuments: {
-          orderBy: [{ createdAt: 'asc' }, { documentId: 'asc' }],
-          select: {
-            document: {
-              select: {
-                id: true,
-                fileName: true,
-                pageCount: true,
-                status: true,
-                deletedAt: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    if (!session) {
-      throw new NotFoundException(ErrorMessage.notFound('Chat session'));
-    }
-
-    const messageIds = session.activeLeafMessageId
-      ? await this.prisma.$queryRaw<{ id: string }[]>`
-          WITH RECURSIVE ancestors AS (
-            SELECT id, parent_message_id, ARRAY[id] AS visited, 0 AS depth
-            FROM chat_history
-            WHERE id = ${session.activeLeafMessageId}::uuid
-              AND session_id = ${id}::uuid
-
-            UNION ALL
-
-            SELECT h.id, h.parent_message_id, a.visited || h.id, a.depth + 1
-            FROM chat_history h
-            JOIN ancestors a ON h.id = a.parent_message_id
-            WHERE h.session_id = ${id}::uuid
-              AND NOT (h.id = ANY(a.visited))
-          )
-          SELECT id FROM ancestors ORDER BY depth DESC
-        `
-      : [];
-
-    const histories = messageIds.length
-      ? await this.prisma.chatHistory.findMany({
-          where: {
-            sessionId: id,
-            id: { in: messageIds.map((message) => message.id) },
-            deletedAt: null,
-          },
-          select: {
-            id: true,
-            role: true,
-            content: true,
-            status: true,
-            createdAt: true,
-            sources: true,
-            feedback: { select: { type: true } },
-          },
-        })
-      : [];
-
-    const historiesById = new Map(
-      histories.map((message) => [message.id, message]),
-    );
-    const messages = messageIds.flatMap(({ id: messageId }) => {
-      const message = historiesById.get(messageId);
-      if (!message) return [];
-
-      return [
-        {
-          id: message.id,
-          role: message.role,
-          content: message.content,
-          status: message.status,
-          createdAt: message.createdAt,
-          sources:
-            message.role === 'assistant' ? selectSources(message.sources) : [],
-          feedback:
-            message.role === 'assistant'
-              ? (message.feedback?.type ?? null)
-              : null,
-        },
-      ];
-    });
-
-    return {
-      message: Messages.get('Chat session'),
-      data: {
-        id: session.id,
-        title: session.title,
-        answerMode: session.answerMode,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        documents: session.sessionDocuments.map(({ document }) => document),
-        messages,
       },
     };
   }
