@@ -105,12 +105,16 @@ export type DocumentMutationDTO = Pick<
   DocumentDTO,
   'id' | 'fileName' | 'updatedAt'
 >;
+
+export type DocumentRemoveDTO = DocumentMutationDTO;
+export type DocumentRestoreDTO = DocumentMutationDTO;
+export type DocumentRemovePermanentlyDTO = DocumentMutationDTO;
 ```
 
 Gunakan `WebResponse<T>` untuk return type endpoint JSON sesuai pola backend:
 
 ```ts
-Promise<WebResponse<DocumentMutationDTO>>
+Promise<WebResponse<DocumentRemoveDTO>>
 ```
 
 **Beri nama response type sesuai operasi**, meskipun bentuk datanya identik. Alias semantik boleh dipakai untuk memperjelas kontrak controller dan service:

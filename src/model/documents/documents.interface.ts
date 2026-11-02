@@ -22,3 +22,7 @@ export type DocumentMutationDTO = Pick<
   DocumentDTO,
   'id' | 'fileName' | 'updatedAt'
 >;
+
+export type DocumentRemoveDTO = DocumentMutationDTO;
+export type DocumentRestoreDTO = DocumentMutationDTO;
+export type DocumentRemovePermanentlyDTO = DocumentMutationDTO;

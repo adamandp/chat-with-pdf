@@ -16,7 +16,9 @@ import type {
   DocumentFindAllDTO,
   DocumentFindAllDeletedDTO,
   DocumentFindOneDTO,
-  DocumentMutationDTO,
+  DocumentRemoveDTO,
+  DocumentRestoreDTO,
+  DocumentRemovePermanentlyDTO,
 } from './documents.interface';
 
 @Injectable()
@@ -129,7 +131,7 @@ export class DocumentsService {
   async remove(
     userId: string,
     id: string,
-  ): Promise<WebResponse<DocumentMutationDTO>> {
+  ): Promise<WebResponse<DocumentRemoveDTO>> {
     const documents = await this.prisma.document.updateManyAndReturn({
       where: {
         id,
@@ -159,7 +161,7 @@ export class DocumentsService {
   async restore(
     userId: string,
     id: string,
-  ): Promise<WebResponse<DocumentMutationDTO>> {
+  ): Promise<WebResponse<DocumentRestoreDTO>> {
     const documents = await this.prisma.document.updateManyAndReturn({
       where: { id, userId, deletedAt: { not: null } },
       data: { deletedAt: null },
@@ -184,7 +186,7 @@ export class DocumentsService {
   async removePermanently(
     userId: string,
     id: string,
-  ): Promise<WebResponse<DocumentMutationDTO>> {
+  ): Promise<WebResponse<DocumentRemovePermanentlyDTO>> {
     const result = await this.prisma.$transaction(async (tx) => {
       const [document] = await tx.$queryRaw<{
         id: string;

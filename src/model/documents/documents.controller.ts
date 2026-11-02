@@ -18,7 +18,9 @@ import {
   DocumentFindOneDTO,
   DocumentFindAllDTO,
   DocumentFindAllDeletedDTO,
-  DocumentMutationDTO,
+  DocumentRemoveDTO,
+  DocumentRestoreDTO,
+  DocumentRemovePermanentlyDTO,
 } from './documents.interface';
 import { PinoLogger } from 'nestjs-pino';
 
@@ -59,7 +61,7 @@ export class DocumentsController {
   remove(
     @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
-  ): Promise<WebResponse<DocumentMutationDTO>> {
+  ): Promise<WebResponse<DocumentRemoveDTO>> {
     return this.documents.remove(user.sub, id);
   }
 
@@ -68,7 +70,7 @@ export class DocumentsController {
   restore(
     @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
-  ): Promise<WebResponse<DocumentMutationDTO>> {
+  ): Promise<WebResponse<DocumentRestoreDTO>> {
     return this.documents.restore(user.sub, id);
   }
 
@@ -76,7 +78,7 @@ export class DocumentsController {
   removePermanently(
     @CurrentUser() user: JwtPayload,
     @Param('id', new ParseUUIDPipe()) id: string,
-  ): Promise<WebResponse<DocumentMutationDTO>> {
+  ): Promise<WebResponse<DocumentRemovePermanentlyDTO>> {
     return this.documents.removePermanently(user.sub, id);
   }
 }
