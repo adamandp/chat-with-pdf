@@ -20,4 +20,3 @@ export const documentSchema = z.object({
   deletedAt: z.date().nullable(),
 });
 
-export type DocumentDto = z.infer<typeof documentSchema>;
