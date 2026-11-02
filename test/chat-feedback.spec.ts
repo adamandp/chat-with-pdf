@@ -1,15 +1,11 @@
 import { createRequire } from 'node:module';
 
 const require = createRequire(`${process.cwd()}/test/loader.cjs`);
-const {
-  ChatFeedbackService,
-} = require('../dist/model/chat-feedback/chat-feedback.service');
-const {
-  ChatFeedbackController,
-} = require('../dist/model/chat-feedback/chat-feedback.controller');
+const { ChatService } = require('../dist/model/chat/chat.service');
+const { ChatController } = require('../dist/model/chat/chat.controller');
 const {
   toggleChatFeedbackSchema,
-} = require('../dist/model/chat-feedback/dto/toggle-chat-feedback.dto');
+} = require('../dist/model/chat/dto/toggle-chat-feedback.dto');
 const {
   METHOD_METADATA,
   HTTP_CODE_METADATA,
@@ -58,7 +54,7 @@ function setup(
     }),
   };
   return {
-    service: new ChatFeedbackService(prisma),
+    service: new ChatService(prisma, {}, {}, { setContext: vi.fn() }),
     chatFeedback,
     tx,
     prisma,
@@ -68,25 +64,23 @@ function setup(
 
 describe('POST /chat/:messageId/feedback', () => {
   it('registers POST and responds with 204 No Content', () => {
-    expect(Reflect.getMetadata(PATH_METADATA, ChatFeedbackController)).toBe(
-      'chat',
-    );
+    expect(Reflect.getMetadata(PATH_METADATA, ChatController)).toBe('chat');
     expect(
       Reflect.getMetadata(
         PATH_METADATA,
-        ChatFeedbackController.prototype.toggle,
+        ChatController.prototype.toggleFeedback,
       ),
     ).toBe(':messageId/feedback');
     expect(
       Reflect.getMetadata(
         METHOD_METADATA,
-        ChatFeedbackController.prototype.toggle,
+        ChatController.prototype.toggleFeedback,
       ),
     ).toBe(RequestMethod.POST);
     expect(
       Reflect.getMetadata(
         HTTP_CODE_METADATA,
-        ChatFeedbackController.prototype.toggle,
+        ChatController.prototype.toggleFeedback,
       ),
     ).toBe(204);
   });
@@ -103,7 +97,7 @@ describe('POST /chat/:messageId/feedback', () => {
     async (initial, requested, expected, mutation) => {
       const { service, chatFeedback, getFeedback } = setup(initial);
       await expect(
-        service.toggle('owner', 'message', { type: requested }),
+        service.toggleFeedback('owner', 'message', { type: requested }),
       ).resolves.toBeUndefined();
       expect(getFeedback()).toBe(expected);
       expect(chatFeedback[mutation]).toHaveBeenCalledOnce();
@@ -129,7 +123,7 @@ describe('POST /chat/:messageId/feedback', () => {
     const x = setup();
     x.tx.$queryRaw.mockResolvedValue([]);
     await expect(
-      x.service.toggle('owner', 'foreign', { type: 'LIKE' }),
+      x.service.toggleFeedback('owner', 'foreign', { type: 'LIKE' }),
     ).rejects.toMatchObject({ status: 404 });
     expect(x.chatFeedback.create).not.toHaveBeenCalled();
   });
@@ -140,7 +134,7 @@ describe('POST /chat/:messageId/feedback', () => {
   ])('rejects invalid message role/status %s/%s', async (role, status) => {
     const x = setup(null, role, status);
     await expect(
-      x.service.toggle('owner', 'message', { type: 'LIKE' }),
+      x.service.toggleFeedback('owner', 'message', { type: 'LIKE' }),
     ).rejects.toMatchObject({ status: 409 });
     expect(x.chatFeedback.create).not.toHaveBeenCalled();
   });
@@ -148,8 +142,8 @@ describe('POST /chat/:messageId/feedback', () => {
   it('serializes simultaneous equal toggles so two likes cancel out', async () => {
     const x = setup();
     await Promise.all([
-      x.service.toggle('owner', 'message', { type: 'LIKE' }),
-      x.service.toggle('owner', 'message', { type: 'LIKE' }),
+      x.service.toggleFeedback('owner', 'message', { type: 'LIKE' }),
+      x.service.toggleFeedback('owner', 'message', { type: 'LIKE' }),
     ]);
     expect(x.getFeedback()).toBeNull();
     expect(x.chatFeedback.create).toHaveBeenCalledOnce();

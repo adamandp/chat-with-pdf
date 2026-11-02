@@ -260,6 +260,8 @@ Content-Type: application/json
 
 Toggle rules: missing feedback → create; same type → delete; different type → update. A row lock serializes concurrent toggles per message. Only completed assistant messages in active (not deleted) sessions owned by the caller are accepted.
 
+Implementation: `ChatController` and `ChatService` inside `ChatModule`; no separate feedback module.
+
 **Errors:** 400 invalid UUID/body; 401 unauthenticated; 404 message not found/not owned/session deleted; 409 wrong role or status.
 
 ## 5. Regenerate Answer

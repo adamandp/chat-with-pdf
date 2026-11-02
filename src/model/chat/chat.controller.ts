@@ -2,6 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -14,6 +16,7 @@ import type { WebResponse } from '../../common/common.interface';
 import type { JwtPayload } from '../session/session.interface';
 import { ChatService } from './chat.service';
 import { Observable } from 'rxjs';
+import { ToggleChatFeedbackDto } from './dto/toggle-chat-feedback.dto';
 import {
   SendChatDTO,
   type SendChatEvent,
@@ -41,6 +44,16 @@ export class ChatController {
     @Body() body: SendChatDTO,
   ): Promise<Observable<SendChatEvent>> {
     return this.chat.send(user.sub, body);
+  }
+
+  @Post(':messageId/feedback')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  toggleFeedback(
+    @CurrentUser() user: JwtPayload,
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @Body() body: ToggleChatFeedbackDto,
+  ): Promise<void> {
+    return this.chat.toggleFeedback(user.sub, messageId, body);
   }
 
   @Post(':id/fork')
