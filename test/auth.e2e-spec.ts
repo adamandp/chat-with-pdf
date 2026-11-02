@@ -11,8 +11,8 @@ const require = createRequire(`${process.cwd()}/test/loader.cjs`);
 
 const { AppModule } = require('../dist/app.module');
 
-const { DocumentsProcessor } = require('../dist/model/documents/queue/documents.processor');
-const { DocumentsListener } = require('../dist/model/documents/queue/document-progress.service');
+const { DocumentsProcessor } = require('../dist/model/document-upload/queue/documents.processor');
+const { DocumentsListener } = require('../dist/model/document-upload/queue/document-progress.service');
 
 const { MilvusService } = require('../dist/common/milvus/milvus.service');
 
