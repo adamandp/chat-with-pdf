@@ -13,7 +13,7 @@ import { CurrentUser } from '../../decorators/current-user.decorator';
 import { DocumentsService } from './documents.service';
 import type { JwtPayload } from '../session/session.interface';
 import { WebResponse } from '../../common/common.interface';
-import { PaginationDto } from '../../common/common.dto';
+import { BaseQueryDto } from '../../common/common.dto';
 import {
   DocumentFindOneDTO,
   DocumentFindAllDTO,
@@ -36,17 +36,17 @@ export class DocumentsController {
   @Get()
   findAll(
     @CurrentUser() user: JwtPayload,
-    @Query() pagination: PaginationDto,
+    @Query() query: BaseQueryDto,
   ): Promise<WebResponse<DocumentFindAllDTO>> {
-    return this.documents.findAll(user.sub, pagination);
+    return this.documents.findAll(user.sub, query);
   }
 
   @Get('deleted')
   findDeleted(
     @CurrentUser() user: JwtPayload,
-    @Query() pagination: PaginationDto,
+    @Query() query: BaseQueryDto,
   ): Promise<WebResponse<DocumentFindAllDeletedDTO>> {
-    return this.documents.findDeleted(user.sub, pagination);
+    return this.documents.findDeleted(user.sub, query);
   }
 
   @Get(':id')

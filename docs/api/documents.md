@@ -120,4 +120,4 @@ No request body. Requires an owned document already in Trash. The service checks
 
 - Upload, processing and SSE progress routes live in [Document Upload](document-upload.md), under `/document-upload`.
 - `Document` remains the single Prisma model. No additional upload table is introduced.
-- There are no request-body DTOs for these actions; pagination uses shared `PaginationDto`, and `:id` uses `ParseUUIDPipe`.
+- There are no request-body DTOs for these actions; list queries use shared `BaseQueryDto`, and `:id` uses `ParseUUIDPipe`. The shared `q` and `order` fields are reserved for list filtering/sorting and do not change the current list behavior yet.

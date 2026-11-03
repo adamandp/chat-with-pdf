@@ -4,7 +4,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { Messages, ErrorMessage } from '../../utils/message.helper';
 
 import type { WebResponse } from '../../common/common.interface';
-import type { PaginationDto } from '../../common/common.dto';
+import type { BaseQueryDto } from '../../common/common.dto';
 import type { UpdateChatSessionDto } from './dto/update-chat-session.dto';
 import type {
   FindAllChatSessionResDto,
@@ -23,7 +23,7 @@ export class ChatSessionService {
 
   async findAll(
     userId: string,
-    { page, limit }: PaginationDto,
+    { page, limit }: BaseQueryDto,
   ): Promise<WebResponse<FindAllChatSessionResDto>> {
     this.logger.trace({ userId, page, limit }, 'Finding active chat sessions');
 
@@ -54,7 +54,7 @@ export class ChatSessionService {
 
   async findDeleted(
     userId: string,
-    { page, limit }: PaginationDto,
+    { page, limit }: BaseQueryDto,
   ): Promise<WebResponse<FindAllChatSessionResDto>> {
     this.logger.trace({ userId, page, limit }, 'Finding deleted chat sessions');
 

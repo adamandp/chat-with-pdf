@@ -11,7 +11,7 @@ import { MilvusService } from '../../common/milvus/milvus.service';
 import { DocumentStatus } from '../../generated/prisma/enums';
 import { Messages, ErrorMessage } from '../../utils/message.helper';
 import type { WebResponse } from '../../common/common.interface';
-import type { PaginationDto } from '../../common/common.dto';
+import type { BaseQueryDto } from '../../common/common.dto';
 import type {
   DocumentFindAllDTO,
   DocumentFindAllDeletedDTO,
@@ -34,7 +34,7 @@ export class DocumentsService {
 
   async findAll(
     userId: string,
-    { page, limit }: PaginationDto,
+    { page, limit }: BaseQueryDto,
   ): Promise<WebResponse<DocumentFindAllDTO>> {
     this.logger.trace({ userId, page, limit }, 'Finding ready documents');
 
@@ -71,7 +71,7 @@ export class DocumentsService {
 
   async findDeleted(
     userId: string,
-    { page, limit }: PaginationDto,
+    { page, limit }: BaseQueryDto,
   ): Promise<WebResponse<DocumentFindAllDeletedDTO>> {
     this.logger.trace({ userId, page, limit }, 'Finding deleted documents');
 
