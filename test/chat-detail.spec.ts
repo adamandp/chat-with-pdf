@@ -1,11 +1,39 @@
 import { createRequire } from 'node:module';
 
 const require = createRequire(`${process.cwd()}/test/loader.cjs`);
+const { PATH_METADATA, METHOD_METADATA } = require('@nestjs/common/constants');
+const { RequestMethod } = require('@nestjs/common');
+const { ChatService } = require('../dist/model/chat/chat.service');
+const { ChatController } = require('../dist/model/chat/chat.controller');
 const {
-  ChatSessionService,
-} = require('../dist/model/chat-session/chat-session.service');
+  ChatSessionController,
+} = require('../dist/model/chat-session/chat-session.controller');
 
-describe('ChatSessionService.findOne', () => {
+describe('Chat detail endpoint', () => {
+  it('registers GET /chat/:id/details and removes the old session detail route', () => {
+    expect(Reflect.getMetadata(PATH_METADATA, ChatController)).toBe('chat');
+    expect(
+      Reflect.getMetadata(PATH_METADATA, ChatController.prototype.findOne),
+    ).toBe(':id/details');
+    expect(
+      Reflect.getMetadata(METHOD_METADATA, ChatController.prototype.findOne),
+    ).toBe(RequestMethod.GET);
+    expect(ChatSessionController.prototype.findOne).toBeUndefined();
+  });
+
+  it('delegates the authenticated user and session id to ChatService', async () => {
+    const response = { message: 'ok', data: { messages: [] } };
+    const findOne = vi.fn().mockResolvedValue(response);
+    const controller = new ChatController({ findOne });
+
+    await expect(
+      controller.findOne({ sub: 'user-id' }, 'session-id'),
+    ).resolves.toEqual(response);
+    expect(findOne).toHaveBeenCalledExactlyOnceWith('user-id', 'session-id');
+  });
+});
+
+describe('ChatService.findOne', () => {
   const sessionId = 'f27f6302-a3d9-4e52-9011-6631aafda7f0';
   const userId = '48bc0e16-1864-49ae-9680-aaeaa094d40c';
   const userMessageId = '77e78720-5302-4494-8c37-1cae998ac46c';
@@ -36,6 +64,8 @@ describe('ChatSessionService.findOne', () => {
     histories = [
       {
         id: assistantMessageId,
+        parentMessageId: userMessageId,
+        versionGroupId: 'group-assistant',
         role: 'assistant',
         content: 'Revenue increased [1].',
         status: 'COMPLETED',
@@ -52,6 +82,8 @@ describe('ChatSessionService.findOne', () => {
       },
       {
         id: userMessageId,
+        parentMessageId: null,
+        versionGroupId: 'group-user',
         role: 'user',
         content: 'Summarize the report',
         status: 'COMPLETED',
@@ -65,13 +97,32 @@ describe('ChatSessionService.findOne', () => {
     messageIds?: { id: string }[];
     histories?: object[];
   } = {}) {
+    const versions = histories.map((history) => {
+      const row = history as {
+        id: string;
+        versionGroupId?: string;
+        status: string;
+        createdAt: Date;
+      };
+      return {
+        id: row.id,
+        versionGroupId: row.versionGroupId,
+        status: row.status,
+        createdAt: row.createdAt,
+      };
+    });
     const prisma = {
       chatSession: { findFirst: vi.fn().mockResolvedValue(session) },
-      chatHistory: { findMany: vi.fn().mockResolvedValue(histories) },
+      chatHistory: {
+        findMany: vi
+          .fn()
+          .mockResolvedValueOnce(histories)
+          .mockResolvedValueOnce(versions),
+      },
       $queryRaw: vi.fn().mockResolvedValue(messageIds),
     };
     const logger = { setContext: vi.fn(), trace: vi.fn() };
-    const service = new ChatSessionService(prisma, logger);
+    const service = new ChatService(prisma, { run: vi.fn() }, {}, logger);
     return { prisma, service };
   }
 
@@ -100,12 +151,13 @@ describe('ChatSessionService.findOne', () => {
     expect(sql).toContain('WITH RECURSIVE ancestors');
     expect(sql).toContain('ORDER BY depth DESC');
 
-    expect(result.data).toEqual({
+    expect(result.data).toMatchObject({
       id: sessionId,
       title: 'Annual Report',
       answerMode: 'document_only',
       createdAt,
       updatedAt: createdAt,
+      activeLeafMessageId: assistantMessageId,
       documents: [
         {
           id: 'c14161ef-8ea9-475f-902d-d7127d6c34cc',
@@ -124,6 +176,9 @@ describe('ChatSessionService.findOne', () => {
           createdAt,
           sources: [],
           feedback: null,
+          parentMessageId: null,
+          versionGroupId: 'group-user',
+          versionCount: 1,
         },
         {
           id: assistantMessageId,
@@ -138,6 +193,9 @@ describe('ChatSessionService.findOne', () => {
             },
           ],
           feedback: 'LIKE',
+          parentMessageId: userMessageId,
+          versionGroupId: 'group-assistant',
+          versionCount: 1,
         },
       ],
     });
@@ -164,6 +222,45 @@ describe('ChatSessionService.findOne', () => {
     expect(prisma.chatHistory.findMany).not.toHaveBeenCalled();
   });
 
+  it('preserves deleted PDF metadata and historical citations in chat details', async () => {
+    const deletedAt = new Date('2026-11-03T01:00:00Z');
+    const { service } = setup({
+      session: {
+        id: sessionId,
+        title: 'Annual Report',
+        answerMode: 'document_only',
+        createdAt,
+        updatedAt: createdAt,
+        activeLeafMessageId: assistantMessageId,
+        sessionDocuments: [
+          {
+            document: {
+              id: 'c14161ef-8ea9-475f-902d-d7127d6c34cc',
+              fileName: 'Annual Report.pdf',
+              pageCount: 120,
+              status: 'DELETED',
+              deletedAt,
+            },
+          },
+        ],
+      },
+    });
+    const result = await service.findOne(userId, sessionId);
+    expect(result.data?.documents).toMatchObject([
+      {
+        fileName: 'Annual Report.pdf',
+        status: 'DELETED',
+        deletedAt,
+      },
+    ]);
+    expect(result.data?.messages.at(-1)?.sources).toMatchObject([
+      {
+        documentId: 'c14161ef-8ea9-475f-902d-d7127d6c34cc',
+        pageNumber: 12,
+      },
+    ]);
+  });
+
   it('hides a missing, deleted, or foreign-owned session behind a 404', async () => {
     const { service, prisma } = setup({ session: null });
 
@@ -178,6 +275,8 @@ describe('ChatSessionService.findOne', () => {
       histories: [
         {
           id: assistantMessageId,
+          parentMessageId: userMessageId,
+          versionGroupId: 'group-assistant',
           role: 'assistant',
           content: 'Answer',
           status: 'COMPLETED',
@@ -191,6 +290,8 @@ describe('ChatSessionService.findOne', () => {
         },
         {
           id: 'old-inactive-message',
+          parentMessageId: userMessageId,
+          versionGroupId: 'group-assistant',
           role: 'assistant',
           content: 'Old branch',
           status: 'COMPLETED',
@@ -203,7 +304,7 @@ describe('ChatSessionService.findOne', () => {
 
     const result = await service.findOne(userId, sessionId);
 
-    expect(result.data?.messages).toEqual([
+    expect(result.data?.messages).toMatchObject([
       {
         id: assistantMessageId,
         role: 'assistant',
@@ -212,6 +313,7 @@ describe('ChatSessionService.findOne', () => {
         createdAt,
         sources: [{ documentId: 'doc-id', pageNumber: 3 }],
         feedback: 'DISLIKE',
+        versionCount: 2,
       },
     ]);
   });

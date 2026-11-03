@@ -6,6 +6,7 @@ export const BaseChatSessionSchema = z
     id: baseUUID('Chat Session ID'),
     userId: baseUUID('User ID'),
     title: stringMinMax('Title', 1, 255).nullable(),
+    isPinned: z.boolean(),
     answerMode: stringMinMax('Answer Mode', 1, 30).nullable(),
     activeLeafMessageId: baseUUID('Active Leaf Message ID').nullable(),
     lastMessageAt: baseDate('Last Message At').nullable(),

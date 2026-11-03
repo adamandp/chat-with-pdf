@@ -1,6 +1,6 @@
 # Chat Sessions API Reference
 
-Eight endpoints for managing conversation sessions. Every endpoint requires `Authorization: Bearer <access-jwt>`; no refresh cookie is required.
+Seven endpoints for managing conversation sessions. Every endpoint requires `Authorization: Bearer <access-jwt>`; no refresh cookie is required. Chat details now live at [`GET /chat/:id/details`](chat.md#get-chat-details).
 
 ## Endpoint index
 
@@ -8,9 +8,8 @@ Eight endpoints for managing conversation sessions. Every endpoint requires `Aut
 | --- | --- | --- |
 | GET | `/chat-sessions` | List active sessions |
 | GET | `/chat-sessions/deleted` | List soft-deleted sessions |
-| GET | `/chat-sessions/:id` | Get session details, attached documents, active messages, and feedback |
 | GET | `/chat-sessions/:id/chats` | Legacy: get all stored messages, including inactive branches |
-| PATCH | `/chat-sessions/:id` | Rename a session |
+| PATCH | `/chat-sessions/:id` | Rename and/or pin/unpin a session |
 | DELETE | `/chat-sessions/:id` | Soft-delete a session |
 | DELETE | `/chat-sessions/:id/permanent` | Delete a previously deleted session permanently |
 | POST | `/chat-sessions/:id/restore` | Restore a soft-deleted session |
@@ -42,6 +41,7 @@ Authorization: Bearer <access-jwt>
     {
       "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
       "title": "Financial Analysis",
+      "isPinned": true,
       "updatedAt": "2026-10-30T11:00:00.000Z"
     }
   ],
@@ -61,7 +61,7 @@ Authorization: Bearer <access-jwt>
 | 400 | Invalid pagination |
 | 401 | Invalid or missing access JWT |
 
-**Notes:** only `deletedAt: null` rows owned by the caller are included. The query sorts by `updatedAt DESC` and `id DESC`, not by `lastMessageAt`.
+**Notes:** only `deletedAt: null` rows owned by the caller are included. The query sorts by `isPinned DESC`, then `updatedAt DESC`, then `id DESC`, **before pagination**. Pinned sessions appear first even across multiple pages.
 
 ## 2. List Deleted Chat Sessions
 
@@ -90,6 +90,7 @@ Authorization: Bearer <access-jwt>
     {
       "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
       "title": "Financial Analysis",
+      "isPinned": true,
       "updatedAt": "2026-10-30T11:00:00.000Z"
     }
   ],
@@ -109,90 +110,9 @@ Authorization: Bearer <access-jwt>
 | 400 | Invalid pagination |
 | 401 | Unauthorized |
 
-**Note:** only owned sessions where `deletedAt` is not null appear.
+**Note:** only owned sessions where `deletedAt` is not null appear. `isPinned` is included, but Trash does not use pinned-first sorting.
 
-## 3. Get Chat Session Detail
-
-**GET /chat-sessions/:id**
-
-### Request
-
-**Headers:** `Authorization: Bearer <access-jwt>`. **Cookies:** none. **Body:** none.
-
-| Parameter | Location | Type | Required | Validation |
-| --- | --- | --- | --- | --- |
-| `id` | Path | UUID | Yes | Existing active chat session belonging to caller |
-
-```http
-GET /chat-sessions/6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6
-Authorization: Bearer <access-jwt>
-```
-
-### Success response — 200 OK
-
-```json
-{
-  "message": "📦 Chat session retrieved successfully! Smooth sailing! 😎",
-  "data": {
-    "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
-    "title": "Financial Analysis",
-    "answerMode": "document_only",
-    "createdAt": "2026-10-30T11:00:00.000Z",
-    "updatedAt": "2026-10-30T11:05:00.000Z",
-    "documents": [
-      {
-        "id": "c14161ef-8ea9-475f-902d-d7127d6c34cc",
-        "fileName": "Annual Report.pdf",
-        "pageCount": 120,
-        "status": "READY",
-        "deletedAt": null
-      }
-    ],
-    "messages": [
-      {
-        "id": "234726de-85ef-4d6f-95a1-eb420ac0cc01",
-        "role": "user",
-        "content": "Summarize the financial report.",
-        "status": "COMPLETED",
-        "createdAt": "2026-10-30T11:00:00.000Z",
-        "sources": [],
-        "feedback": null
-      },
-      {
-        "id": "5132f3ab-b51d-4356-b091-9e70515bc351",
-        "role": "assistant",
-        "content": "Revenue increased [1].",
-        "status": "COMPLETED",
-        "createdAt": "2026-10-30T11:00:10.000Z",
-        "sources": [
-          {
-            "documentId": "c14161ef-8ea9-475f-902d-d7127d6c34cc",
-            "pageNumber": 12
-          }
-        ],
-        "feedback": "LIKE"
-      }
-    ]
-  }
-}
-```
-
-### Error responses
-
-| Status | Condition |
-| --- | --- |
-| 400 | Malformed session UUID |
-| 401 | Invalid or missing access JWT |
-| 404 | Session absent, deleted, or owned by another user |
-
-**Notes:**
-
-- `documents` comes from `SessionDocument → Document`, ordered by attachment time, then document ID. `deletedAt` lets the frontend disable previews of deleted files. Request a fresh signed download URL through `GET /documents/:id` when opening a PDF.
-- `messages` contains only the active lineage from the root message through `ChatSession.activeLeafMessageId`, in conversation order. Inactive branches and soft-deleted messages are excluded. All messages in that lineage are returned; there is no pagination yet.
-- `feedback` comes from `ChatFeedback.type` and is `LIKE`, `DISLIKE`, or `null`, matching Prisma's enum. For user messages, it is always `null`.
-- `sources` is reduced to `documentId` and `pageNumber` for PDF citations. Other internal chat-history fields are omitted.
-
-## 4. List Chat Messages (Legacy)
+## 3. List Chat Messages (Legacy)
 
 **GET /chat-sessions/:id/chats**
 
@@ -241,9 +161,9 @@ Authorization: Bearer <access-jwt>
 | 401 | Unauthorized |
 | 404 | Session absent, deleted, or owned by another user |
 
-**Notes:** retained for existing clients during migration to `GET /chat-sessions/:id`. Messages are sorted by creation time ascending and ID ascending. This endpoint returns the **entire stored message collection**, not the active branch selected by `activeLeafMessageId`. There is no pagination. `sources` is JSON; `status` enum values are `PENDING`, `STREAMING`, `COMPLETED`, `FAILED`, `CANCELLED`.
+**Notes:** retained for existing clients during migration to `GET /chat/:id/details`. Messages are sorted by creation time ascending and ID ascending. This endpoint returns the **entire stored message collection**, not the active branch selected by `activeLeafMessageId`. There is no pagination. `sources` is JSON; `status` enum values are `PENDING`, `STREAMING`, `COMPLETED`, `FAILED`, `CANCELLED`.
 
-## 5. Rename Chat Session
+## 4. Update Chat Session (Rename / Pin)
 
 **PATCH /chat-sessions/:id**
 
@@ -261,11 +181,15 @@ Content-Type: application/json
 | Parameter | Location | Type | Required | Validation |
 | --- | --- | --- | --- | --- |
 | `id` | Path | UUID | Yes | Active owned session |
-| `title` | JSON body | string | Yes | Trimmed, 1–255 chars |
+| `title` | JSON body | string | No | Trimmed, 1–255 chars |
+| `isPinned` | JSON body | boolean | No | `true` to pin, `false` to unpin |
+
+At least one of `title` or `isPinned` is required. They may be sent together.
 
 ```json
 {
-  "title": "Updated Chat Title"
+  "title": "Updated Chat Title",
+  "isPinned": true
 }
 ```
 
@@ -277,6 +201,7 @@ Content-Type: application/json
   "data": {
     "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
     "title": "Updated Chat Title",
+    "isPinned": true,
     "updatedAt": "2026-10-30T11:00:00.000Z"
   }
 }
@@ -286,11 +211,11 @@ Content-Type: application/json
 
 | Status | Condition |
 | --- | --- |
-| 400 | Invalid UUID or title |
+| 400 | Invalid UUID, empty update, title, or `isPinned` |
 | 401 | Unauthorized |
 | 404 | Active owned session not found |
 
-## 6. Soft Delete Chat Session
+## 5. Soft Delete Chat Session
 
 **DELETE /chat-sessions/:id**
 
@@ -325,7 +250,7 @@ Content-Type: application/json
 
 **Note:** soft delete leaves messages and related documents intact.
 
-## 7. Permanently Delete Chat Session
+## 6. Permanently Delete Chat Session
 
 **DELETE /chat-sessions/:id/permanent**
 
@@ -360,7 +285,7 @@ Content-Type: application/json
 
 **Notes:** the service deletes feedback, completion records, chat history, session-document join records and the session in a transaction. It does not delete the PDF documents themselves.
 
-## 8. Restore Chat Session
+## 7. Restore Chat Session
 
 **POST /chat-sessions/:id/restore**
 
@@ -404,10 +329,10 @@ List, update, soft delete, permanent delete and restore return **only** the foll
 | `updatedAt` | ISO timestamp / null | Last modification timestamp |
 
 `GET /chat-sessions/:id/chats` returns full chat-history records including `content`, `role`, `parentMessageId`, `sources`, and status.
-`GET /chat-sessions/:id` instead returns a compact combined detail for the chat screen.
+`GET /chat/:id/details` instead returns a compact combined detail for the chat screen.
 
 ## Known issues and missing endpoints
 
 - Session list sorts by `updatedAt`, but new chat messages update `lastMessageAt` without explicitly updating `updatedAt`.
 - Message listing fetches all branch histories rather than the active branch and does not paginate.
-- Current controllers do not offer search, pin/unpin, session-document list/attach/detach, fork, or regenerate.
+- Chat session controllers do not offer search, pin/unpin, or session-document list/attach/detach. Fork, regenerate, edit, feedback and version activation live under `/chat` (see [Chat](chat.md)).

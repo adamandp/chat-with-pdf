@@ -18,6 +18,7 @@ import { LoginDto } from './dto/login.dto.js';
 import { RegisterDTO } from './dto/register.dto.js';
 import { SessionService } from '../session/session.service.js';
 import { GetProfileDTO } from './dto/get-profile.dto.js';
+import { LoginRateLimitService } from './login-rate-limit.service.js';
 
 @Injectable()
 export class AuthService {
@@ -25,6 +26,7 @@ export class AuthService {
     private readonly logger: PinoLogger,
     private readonly prisma: PrismaService,
     private readonly session: SessionService,
+    private readonly loginRateLimit: LoginRateLimitService,
   ) {
     this.logger.setContext(AuthService.name);
   }
@@ -41,9 +43,7 @@ export class AuthService {
       })
       .then((res) => {
         if (!res)
-          throw new UnauthorizedException(
-            ErrorMessage.invalidCredential,
-          );
+          throw new UnauthorizedException(ErrorMessage.invalidCredential);
       });
   }
 
@@ -52,12 +52,17 @@ export class AuthService {
   ): Promise<ValidateUsernameResDTO> {
     const user = await this.prisma.user.findUnique({
       where: { username },
-      select: { id: true, username: true, passwordHash: true, name: true },
+      select: {
+        id: true,
+        username: true,
+        passwordHash: true,
+        name: true,
+        isActive: true,
+        deletedAt: true,
+      },
     });
-    if (!user) {
-      throw new UnauthorizedException(
-        ErrorMessage.invalidCredential,
-      );
+    if (!user || !user.isActive || user.deletedAt) {
+      throw new UnauthorizedException(ErrorMessage.invalidCredential);
     }
     return {
       ...user,
@@ -108,6 +113,7 @@ export class AuthService {
     request: CookieRequest,
   ): Promise<WebResponse<LoginResultDTO>> {
     await this.assertNotAlreadyAuthenticated(request);
+    await this.loginRateLimit.consume(request, data.username);
     const user = await this.validateUsername(data.username);
     await this.validatePassword(data.password, user.passwordHash);
     const token = await this.session.createToken({
@@ -137,14 +143,25 @@ export class AuthService {
       throw new InternalServerErrorException();
     });
 
-    const user = await this.prisma.user.create({
-      data: {
-        username: data.username,
-        passwordHash,
-        name: data.name,
-      },
-      select: { id: true, username: true },
-    });
+    try {
+      await this.prisma.user.create({
+        data: {
+          username: data.username,
+          passwordHash,
+          name: data.name,
+        },
+      });
+    } catch (error) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        error.code === 'P2002'
+      ) {
+        throw new BadRequestException(ErrorMessage.alreadyExist('Username'));
+      }
+      throw error;
+    }
 
     return {
       message: Messages.create('Account'),

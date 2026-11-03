@@ -40,7 +40,7 @@ Urutkan daftar session berdasarkan waktu pembaruan terbaru dengan urutan yang st
 ### 4. Pagination, Validation, and Responses
 
 - Gunakan Zod dan `nestjs-zod`, dengan DTO berbasis `createZodDto` serta `ZodValidationPipe` global melalui common module.
-- Letakkan `PaginationDto` bersama schema pagination di `common/common.dto.ts` agar dapat digunakan lintas modul. Gunakan query `page` dan `limit`, masing-masing integer antara 1–100, dengan default `page: 1` dan `limit: 10`.
+- Letakkan `BaseQueryDto` bersama `BaseQuerySchema` di `common/common.dto.ts` agar dapat digunakan lintas modul. Base query berisi `page` dan `limit` (integer 1–100, default 1 dan 10), `q` (string opsional), serta `order` (`asc`/`desc`, default `desc`). Filter khusus endpoint bisa ditambahkan lewat `.extend()`.
 - Letakkan schema dasar chat session di file validation modul, lalu turunkan schema DTO dan tipe yang relevan dari schema tersebut. Gunakan helper Zod bersama di area utils dan API Zod yang tidak deprecated.
 - Untuk perubahan judul, wajibkan teks dengan panjang maksimal 255 karakter, trim spasi di kedua ujungnya, dan tolak judul yang kosong setelah trim. Perubahan ini hanya mengubah judul serta waktu pembaruan session.
 - Kembalikan daftar melalui `data` dan metadata `paging` yang berisi `currentPage`, `pageSize`, `totalItems`, dan `totalPages`. Gunakan filter yang sama untuk daftar dan perhitungan total. Hasil kosong tetap mengembalikan daftar kosong beserta metadata pagination.

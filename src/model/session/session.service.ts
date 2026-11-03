@@ -21,19 +21,14 @@ export class SessionService {
   ) {}
 
   private hash(token: string) {
-    return createHash('sha256')
-      .update(token)
-      .digest('hex');
+    return createHash('sha256').update(token).digest('hex');
   }
 
   private signAccess(payload: JwtPayload) {
-    return this.jwt.signAsync(
-      payload,
-      {
-        secret: this.config.getOrThrow<string>('ACCESS_JWT_SECRET'),
-        expiresIn: '15m',
-      },
-    );
+    return this.jwt.signAsync(payload, {
+      secret: this.config.getOrThrow<string>('ACCESS_JWT_SECRET'),
+      expiresIn: '15m',
+    });
   }
 
   async createToken({ payload }: CreateTokenDTO): Promise<CreateTokenResDTO> {
@@ -46,13 +41,10 @@ export class SessionService {
 
     const accessToken = await this.signAccess(claims);
 
-    const refreshToken = await this.jwt.signAsync(
-      claims,
-      {
-        secret: this.config.getOrThrow<string>('REFRESH_JWT_SECRET'),
-        expiresIn: '7d',
-      },
-    );
+    const refreshToken = await this.jwt.signAsync(claims, {
+      secret: this.config.getOrThrow<string>('REFRESH_JWT_SECRET'),
+      expiresIn: '7d',
+    });
 
     await this.prisma.$transaction(async (tx) => {
       // Serialize logins and logout-all for this user, including concurrent requests.
@@ -74,11 +66,7 @@ export class SessionService {
           revokedAt: null,
           expiresAt: { gt: now },
         },
-        orderBy: [
-          { lastUsedAt: 'asc' },
-          { createdAt: 'asc' },
-          { id: 'asc' },
-        ],
+        orderBy: [{ lastUsedAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
         select: { id: true },
       });
 
@@ -112,10 +100,11 @@ export class SessionService {
     payload: JwtPayload,
     refreshToken?: string,
   ): Promise<void> {
-    if (!payload.sub) throw new UnauthorizedException();
+    if (!payload?.sub || !payload.sid) throw new UnauthorizedException();
 
     const result = await this.prisma.authSession.updateMany({
       where: {
+        id: payload.sid,
         userId: payload.sub,
         revokedAt: null,
         expiresAt: { gt: new Date() },
@@ -140,14 +129,11 @@ export class SessionService {
     let payload: JwtPayload;
 
     try {
-      payload = await this.jwt.verifyAsync<JwtPayload>(
-        token,
-        {
-          secret: this.config.getOrThrow<string>(
-            type === 'access' ? 'ACCESS_JWT_SECRET' : 'REFRESH_JWT_SECRET',
-          ),
-        },
-      );
+      payload = await this.jwt.verifyAsync<JwtPayload>(token, {
+        secret: this.config.getOrThrow<string>(
+          type === 'access' ? 'ACCESS_JWT_SECRET' : 'REFRESH_JWT_SECRET',
+        ),
+      });
     } catch {
       throw new UnauthorizedException();
     }
@@ -170,6 +156,7 @@ export class SessionService {
       data: {
         accessToken: await this.signAccess({
           sub: payload.sub,
+          sid: payload.sid,
         }),
       },
     };
@@ -183,6 +170,7 @@ export class SessionService {
 
     await this.prisma.authSession.updateMany({
       where: {
+        id: payload.sid,
         userId: payload.sub,
         revokedAt: null,
       },

@@ -10,7 +10,7 @@ Account creation, login, profile, token refresh and session termination. Status 
 | POST | `/auth/login` | Public | Login; receive access JWT and refresh cookie |
 | GET | `/auth/profile` | Bearer | Current user profile |
 | POST | `/session/refresh` | Refresh cookie | Renew access JWT |
-| POST | `/auth/logout` | Refresh cookie | Logout (current implementation has multi-device bug) |
+| POST | `/auth/logout` | Refresh cookie | Revoke only the current device session |
 | POST | `/auth/logout-all` | Bearer | Revoke all device sessions |
 
 ## 1. Register
@@ -97,13 +97,16 @@ Set-Cookie: refreshToken=<refresh-jwt>; HttpOnly; SameSite=Lax; Path=/; Expires=
 | Status | Condition |
 | --- | --- |
 | 400 | Invalid body or already logged in with a valid refresh cookie |
-| 401 | Invalid username or password |
+| 401 | Invalid username/password, inactive account, or soft-deleted account |
+| 429 | More than 30 login requests per IP or 10 per username within 15 minutes (`Retry-After` header) |
 
 ### Notes
 
 - Access token: 15 minutes, response JSON only.
-- Refresh token: 7 days, HttpOnly cookie. `Secure` is enabled when `NODE_ENV=production`.
-- The service stores a SHA-256 hash of the refresh JWT in `auth_sessions`. Intended maximum: five concurrently active device sessions.
+- Refresh token: 7 days, HttpOnly cookie. `Secure` is enabled when `NODE_ENV=production` or `AUTH_COOKIE_SAME_SITE=none`.
+- The service stores a SHA-256 hash of the refresh JWT in `auth_sessions`. Maximum: five concurrently active device sessions.
+- Login limits use atomic PostgreSQL counters for both IP and normalized username. All attempts count, whether credentials are valid or not.
+- Deploy migration `20261103000000_restore_auth_login_rate_limit` first (`npx prisma migrate deploy`); the login rate limiter requires this table.
 
 ## 3. Get Profile
 
@@ -159,7 +162,7 @@ Cookie: refreshToken=<refresh-jwt>
 }
 ```
 
-**Response cookies:** none; the existing refresh cookie is not rotated.
+**Response cookies:** none; the existing refresh cookie is deliberately not rotated. The new access JWT preserves the same `sid`.
 
 ### Error responses
 
@@ -167,7 +170,7 @@ Cookie: refreshToken=<refresh-jwt>
 | --- | --- |
 | 401 | Missing, expired, invalid, or revoked refresh token |
 
-**Known issue:** the newly signed access token lacks the original `sid` claim.
+**Security:** the refresh token must match the stored hash for its active session.
 
 ## 5. Logout
 
@@ -205,7 +208,7 @@ Set-Cookie: refreshToken=; Expires=<past-date>; Path=/
 | --- | --- |
 | 401 | Missing, expired, invalid, or revoked refresh cookie |
 
-**Known issue:** `revokeCurrent` currently filters by `userId` rather than session ID, so **logout revokes all sessions**, not only the current device. The browser cookie is cleared after a successful service call; on 401, this controller does not clear it.
+Only the session matching the refresh token's `sid` is revoked. The browser cookie is also cleared if the token is missing, expired, or already revoked (the HTTP response remains 401).
 
 ## 6. Logout All Devices
 
@@ -249,16 +252,17 @@ Set-Cookie: refreshToken=; Expires=<past-date>; Path=/
 
 - A browser sends a matching HttpOnly cookie automatically; client JavaScript cannot read its value.
 - For cross-origin browser requests, use credentials (e.g. Axios `withCredentials: true`); backend must permit the exact frontend origin and credentials.
-- `SameSite=Lax` generally will **not** send this cookie on cross-site fetch/XHR. Production hostname arrangement matters.
-- This service does not rotate refresh tokens or include an explicit CSRF mechanism for refresh-cookie-based routes.
+- `AUTH_COOKIE_SAME_SITE=lax` is the default. Cross-site FE/BE hostnames require `AUTH_COOKIE_SAME_SITE=none` and HTTPS (`Secure` enabled automatically).
+- Refresh and logout reject requests with an `Origin` header outside `FRONTEND_ORIGINS` (403).
+- Refresh rotation is intentionally outside the API contract. Revoking a session invalidates its access and refresh tokens.
 
-## Known Issues
+## Session isolation guarantees
 
-| ID | Current code | Impact |
+| Operation | Session identity | Expected result |
 | --- | --- | --- |
-| AUTH-001 | `validateSession` runs `updateMany` filtered by `userId` and requires exactly one affected row | Valid access JWT may return 401 whenever two or more active sessions exist |
-| AUTH-002 | `revokeCurrent` revokes by `userId` | Single-device logout revokes all devices |
-| AUTH-003 | Refreshed access token signs `{ sub }` without `sid` | Device identity is lost in refreshed JWT |
-| AUTH-004 | Refresh token is not rotated | Security-hardening choice, not necessarily a functional bug |
+| Access / refresh validation | `sub` and `sid` | A device's token only works while its own session remains active |
+| Refresh token validation | `sub`, `sid`, and refresh hash | A revoked or mismatched session fails |
+| Logout | `sub` and `sid` | Only the current device is logged out |
+| Logout all | `sub` | All sessions belonging to the user are revoked |
 
-These observations follow current `AuthController`, `AuthService` and `SessionService`; do not confuse intended behavior with existing behavior.
+Responses and endpoint paths are unchanged; server-side checks match the documented per-device behavior.

@@ -75,7 +75,7 @@ Aturan saat membuat DTO:
 2. Gunakan `.pick()` untuk field yang diizinkan, atau `.omit()` saat lebih tepat.
 3. Gunakan `.extend()` hanya untuk perubahan aturan spesifik endpoint, seperti mengubah `nullable` menjadi wajib atau menambahkan `.trim()`.
 4. Gunakan `.optional()`/`.partial()` hanya bila memang didukung kontrak request. Jangan menyamakan `nullable` dengan `optional`.
-5. Tidak perlu membuat request-body DTO untuk endpoint tanpa body. Gunakan DTO query bersama seperti `PaginationDto` atau `ParseUUIDPipe` untuk parameter UUID yang sudah ada.
+5. Tidak perlu membuat request-body DTO untuk endpoint tanpa body. Gunakan DTO query bersama seperti `BaseQueryDto` atau `ParseUUIDPipe` untuk parameter UUID yang sudah ada. Untuk filter khusus endpoint, turunkan schema dari `BaseQuerySchema` dengan `.extend()` dan buat DTO hanya bila diperlukan.
 
 ## 5. Controller wajib memakai DTO class untuk request body
 

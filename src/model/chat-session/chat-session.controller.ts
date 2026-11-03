@@ -14,12 +14,11 @@ import {
 } from '@nestjs/common';
 import { ChatSessionService } from './chat-session.service';
 import { CurrentUser } from '../../decorators/current-user.decorator';
-import { PaginationDto } from '../../common/common.dto';
+import { BaseQueryDto } from '../../common/common.dto';
 import { UpdateChatSessionDto } from './dto/update-chat-session.dto';
 import type { WebResponse } from '../../common/common.interface';
 import type {
   FindAllChatSessionResDto,
-  FindChatSessionDetailResDto,
   FindChatsResDto,
   UpdateChatSessionResDto,
 } from './chat-session.interface';
@@ -37,25 +36,17 @@ export class ChatSessionController {
   @Get()
   findAll(
     @CurrentUser() user: JwtPayload,
-    @Query() pagination: PaginationDto,
+    @Query() query: BaseQueryDto,
   ): Promise<WebResponse<FindAllChatSessionResDto>> {
-    return this.chatSessionService.findAll(user.sub, pagination);
+    return this.chatSessionService.findAll(user.sub, query);
   }
 
   @Get('deleted')
   findDeleted(
     @CurrentUser() user: JwtPayload,
-    @Query() pagination: PaginationDto,
+    @Query() query: BaseQueryDto,
   ): Promise<WebResponse<FindAllChatSessionResDto>> {
-    return this.chatSessionService.findDeleted(user.sub, pagination);
-  }
-
-  @Get(':id')
-  findOne(
-    @CurrentUser() user: JwtPayload,
-    @Param('id', new ParseUUIDPipe()) id: string,
-  ): Promise<WebResponse<FindChatSessionDetailResDto>> {
-    return this.chatSessionService.findOne(user.sub, id);
+    return this.chatSessionService.findDeleted(user.sub, query);
   }
 
   @Get(':id/chats')

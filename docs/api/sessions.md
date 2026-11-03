@@ -22,4 +22,4 @@ Authentication sessions and chat sessions are different resources.
 
 **Errors:** 401 missing, invalid, expired or revoked refresh cookie.
 
-**Notes:** The refresh cookie is not rotated here. The same auth session and original refresh expiration remain in effect. Access token lifetime: 15 minutes.
+**Notes:** The refresh cookie is not rotated. The new access token preserves the existing session ID (`sid`) and original refresh expiration. Access token lifetime: 15 minutes. Untrusted `Origin` headers return 403.

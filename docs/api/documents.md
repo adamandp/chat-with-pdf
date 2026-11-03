@@ -11,7 +11,7 @@ Document management is separate from upload/processing. Every endpoint requires 
 | GET | `/documents/:id` | Document detail + temporary download URL |
 | DELETE | `/documents/:id` | Soft-delete a `READY` document |
 | POST | `/documents/:id/restore` | Restore a trashed document |
-| DELETE | `/documents/:id/permanent` | Permanently delete an unlinked trashed document |
+| DELETE | `/documents/:id/permanent` | Remove trashed PDF data while retaining metadata and chat links |
 
 All success responses use `WebResponse` (`message`, optional `data` and `paging`). Exceptions use Nest's error response format.
 
@@ -42,7 +42,7 @@ The shown item is abbreviated; the actual response includes every `Document` mod
 
 **GET `/documents/deleted?page=1&limit=10`** — 200 OK
 
-Uses the same query and response shape as `GET /documents`, except the filter is `userId` plus `deletedAt IS NOT NULL` and the response message refers to deleted documents. The list is ordered by `updatedAt DESC`, then `id DESC`.
+Uses the same query and response shape as `GET /documents`, except the filter is `userId`, `status: READY`, and `deletedAt IS NOT NULL`. Documents undergoing permanent deletion (`DELETING`) or already permanently deleted (`DELETED`) do not appear. The list is ordered by `updatedAt DESC`, then `id DESC`.
 
 **Errors:** 400 invalid pagination; 401 unauthorized.
 
@@ -54,7 +54,7 @@ Uses the same query and response shape as `GET /documents`, except the filter is
 | --- | --- | --- | --- |
 | `id` | UUID | Yes | Valid UUID |
 
-Returns an active document belonging to the caller, including all `Document` fields and a `download_url` (MinIO presigned GET, expires in 900 seconds). This endpoint does not require `READY` status.
+Returns an active document belonging to the caller, including all `Document` fields and a `download_url` (MinIO presigned GET, expires in 900 seconds). This endpoint does not require `READY` status, but never issues a download URL for `DELETING` or `DELETED` documents.
 
 ```json
 {
@@ -90,7 +90,7 @@ No request body. Requires an owned document with `status: READY` and `deletedAt:
 
 **POST `/documents/:id/restore`** — 200 OK
 
-No request body. Requires an owned document with `deletedAt IS NOT NULL`. Clears `deletedAt` without reprocessing.
+No request body. Requires an owned document with `status: READY` and `deletedAt IS NOT NULL`. Clears `deletedAt` without reprocessing. Permanent deletions cannot be restored.
 
 ```json
 {
@@ -99,13 +99,15 @@ No request body. Requires an owned document with `deletedAt IS NOT NULL`. Clears
 }
 ```
 
-**Errors:** 400 invalid UUID; 401 unauthorized; 404 not found, not owned, or not deleted.
+**Errors:** 400 invalid UUID; 401 unauthorized; 404 not found, not owned, not in Trash, or not `READY`.
 
 ## 6. Permanent delete
 
 **DELETE `/documents/:id/permanent`** — 200 OK
 
-No request body. Requires an owned document already in Trash. The service checks `session_documents` in a transaction. If any chat session is linked, it rejects deletion with 409 and leaves the relation untouched. Otherwise it deletes document chunks from Milvus (`document_chunks`), removes the MinIO object, and deletes the PostgreSQL document row.
+No request body. Requires an owned document already in Trash (`READY` with `deletedAt` set), or a failed/interrupted `DELETING` cleanup. It atomically claims the document and switches its status to `DELETING`. Outside any long-running database transaction it deletes its chunks from Milvus (`document_chunks`) and its PDF from MinIO. Once cleanup succeeds, it sets `DELETED` **without deleting the `Document` row or any `SessionDocument`/chat relations**. The preserved metadata, including `deletedAt`, remains visible in `GET /chat/:id/details`, marked `DELETED`.
+
+Cleanup is idempotent: missing MinIO objects are treated as already deleted. If Milvus or MinIO fails, the document stays `DELETING` with an error recorded; call the same endpoint again to retry. Simultaneous calls for an in-progress deletion receive 409. An interrupted in-progress claim may be retried after 30 minutes. A completed (`DELETED`) document cannot be deleted again or restored.
 
 ```json
 {
@@ -114,10 +116,10 @@ No request body. Requires an owned document already in Trash. The service checks
 }
 ```
 
-**Errors:** 400 invalid UUID; 401 unauthorized; 404 not found, not owned, or not in Trash; 409 still linked to `SessionDocument`; storage/vector/database errors may propagate.
+**Errors:** 400 invalid UUID; 401 unauthorized; 404 not found, not owned, not in Trash, or already `DELETED`; 409 cleanup already in progress; 503 external cleanup failed (retryable).
 
 ## Notes
 
 - Upload, processing and SSE progress routes live in [Document Upload](document-upload.md), under `/document-upload`.
 - `Document` remains the single Prisma model. No additional upload table is introduced.
-- There are no request-body DTOs for these actions; pagination uses shared `PaginationDto`, and `:id` uses `ParseUUIDPipe`.
+- There are no request-body DTOs for these actions; list queries use shared `BaseQueryDto`, and `:id` uses `ParseUUIDPipe`. The shared `q` and `order` fields are reserved for list filtering/sorting and do not change the current list behavior yet.

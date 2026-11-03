@@ -8,11 +8,11 @@
 | --- | ---: | --- |
 | Authentication & token sessions | 6 | [authentication.md](api/authentication.md) |
 | Chat sessions | 7 | [chat-sessions.md](api/chat-sessions.md) |
-| AI chat | 1 | [chat.md](api/chat.md) |
+| AI chat | 2 | [chat.md](api/chat.md) |
 | Document Upload | 4 | [document-upload.md](api/document-upload.md) |
 | Documents | 6 | [documents.md](api/documents.md) |
 | Health | 5 | [health.md](api/health.md) |
-| **Total NestJS routes** | **29** | |
+| **Total NestJS routes** | **30** | |
 
 The direct MinIO signed `PUT` described in the documents guide is **not** a NestJS endpoint.
 
@@ -22,9 +22,10 @@ The direct MinIO signed `PUT` described in the documents guide is **not** a Nest
 - There is **no global `/api` or `/v1` prefix** in `src/main.ts`.
 - Protected endpoints require `Authorization: Bearer <access-jwt>`.
 - Access JWT lifetime: **15 minutes**. Refresh JWT lifetime: **7 days**.
-- Login sets `refreshToken` in an HttpOnly, `SameSite=Lax` cookie (`Secure` when `NODE_ENV=production`), and returns access token in JSON.
+- Login sets `refreshToken` in an HttpOnly, `SameSite=Lax` cookie by default (`Secure` when `NODE_ENV=production`), and returns access token in JSON. `AUTH_COOKIE_SAME_SITE=none` supports HTTPS cross-site cookies.
 - `POST /session/refresh` and `POST /auth/logout` use the refresh cookie. `POST /auth/logout-all` uses the Bearer token.
-- Cross-origin browser clients should send credentials for cookie-bearing requests. CORS allows configured `FRONTEND_ORIGINS` with credentials enabled; cross-site cookie deployments require review of SameSite and Secure behavior.
+- Cross-origin browser clients should send credentials for cookie-bearing requests. CORS allows configured `FRONTEND_ORIGINS` with credentials enabled; refresh/logout check `Origin` when present.
+- JWTs identify user (`sub`) and database session (`sid`). Refresh preserves the same cookie/session, logout revokes only that session. Login is limited to 30 requests/IP and 10 requests/username per 15 minutes (429 with `Retry-After`).
 
 ## Common JSON response format
 
@@ -70,13 +71,21 @@ List endpoints accept `?page=1&limit=10`. Both are integers from 1 through 100; 
 
 **PDF upload:** `POST /document-upload/presigned-url` → direct MinIO `PUT` → `POST /document-upload/:id/process` → `GET /document-upload/:id/progress` → `POST /chat/send`.
 
-**SSE:** `POST /chat/send` emits `started`, `sources`, `token`, `done`, `error`; use fetch streaming because native `EventSource` cannot POST. Document upload progress uses `GET` SSE events `message` and `heartbeat`.
+**Chat details:** `GET /chat/:id/details` returns session metadata, documents, active-branch messages, feedback, and version navigation metadata (moved from `GET /chat-sessions/:id`).
+
+**Chat branching and feedback:** `POST /chat/:id/fork`, `POST /chat/:messageId/feedback` (204), `POST /chat/:messageId/regenerate` (SSE, including older/inactive answers), `POST /chat/:messageId/edit` (SSE), and `PATCH /chat/:messageId/activate`. See [Chat API](api/chat.md).
+
+**Session pinning:** `PATCH /chat-sessions/:id` accepts `title` and/or `isPinned`. `GET /chat-sessions` lists pinned sessions first before pagination; Trash includes the pin flag without pinned-first sorting.
+
+**Permanent PDF deletion:** `DELETE /documents/:id/permanent` removes MinIO/Milvus data but preserves `Document` and chat associations. Cleanup progresses `READY` → `DELETING` → `DELETED`, with failed cleanup retryable. Permanently deleted documents disappear from Trash and cannot be downloaded or restored; chat details keep their metadata with `status: DELETED`.
+
+**SSE:** `POST /chat/send`, `POST /chat/:messageId/regenerate`, and `POST /chat/:messageId/edit` emit `started`, `sources`, `token`, `done`, `error`; use fetch streaming because native `EventSource` cannot POST. Document upload progress uses `GET` SSE events `message` and `heartbeat`.
 
 ## Versioning and legacy documents
 
 These newly authored module pages describe current controllers / Zod DTOs / services / Prisma, including known defects. Legacy `docs/chat.md`, `docs/chat.openapi.json`, `docs/document-api.yaml`, and `docs/documents.openapi.json` still describe **older contracts** (e.g. `POST /chat`, snake_case request fields, `/presigned-url`). They are preserved here and should not be treated as current API truth until reconciled.
 
-Retry is explicitly a TODO stub. Notable remaining gaps include multi-session auth correctness, document upload status validation, and message regenerate/fork/feedback. See each module page for details.
+Document upload retry remains a TODO stub. Other remaining gaps include multi-session auth correctness, document upload status validation, and resuming interrupted chat streams. See each module page for details.
 
 ## Source paths audited
 

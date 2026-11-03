@@ -1,8 +1,10 @@
 import { createRequire } from 'node:module';
 
 const require = createRequire(`${process.cwd()}/test/loader.cjs`);
-const { DocumentsService } = require('../dist/model/documents/documents.service');
-const { PaginationSchema } = require('../dist/common/common.dto');
+const {
+  DocumentsService,
+} = require('../dist/model/documents/documents.service');
+const { BaseQuerySchema } = require('../dist/common/common.dto');
 
 describe('DocumentsService.findAll', () => {
   function setup(documents: object[] = [], totalItems = 0) {
@@ -11,7 +13,9 @@ describe('DocumentsService.findAll', () => {
         findMany: vi.fn().mockResolvedValue(documents),
         count: vi.fn().mockResolvedValue(totalItems),
       },
-      $transaction: vi.fn((queries: Promise<unknown>[]) => Promise.all(queries)),
+      $transaction: vi.fn((queries: Promise<unknown>[]) =>
+        Promise.all(queries),
+      ),
     };
     const logger = { setContext: vi.fn(), trace: vi.fn() };
     const service = new DocumentsService(logger, prisma, {}, {});
@@ -20,12 +24,18 @@ describe('DocumentsService.findAll', () => {
   }
 
   it('scopes both the page and total to ready documents owned by the user', async () => {
-    const { service, prisma } = setup([
-      { id: 'document-id', fileSize: 9007199254740993n },
-      { id: 'ready-document-id', fileSize: null },
-    ], 5);
+    const { service, prisma } = setup(
+      [
+        { id: 'document-id', fileSize: 9007199254740993n },
+        { id: 'ready-document-id', fileSize: null },
+      ],
+      5,
+    );
 
-    const response = await service.findAll('owner-id', { page: 2, limit: 2 });
+    const response = await service.findAll(
+      'owner-id',
+      BaseQuerySchema.parse({ page: 2, limit: 2 }),
+    );
 
     expect(prisma.document.findMany).toHaveBeenCalledWith({
       where: { userId: 'owner-id', status: 'READY', deletedAt: null },
@@ -50,17 +60,44 @@ describe('DocumentsService.findAll', () => {
   it('returns an empty page with zero totals for a user without documents', async () => {
     const { service } = setup();
 
-    expect(await service.findAll('owner-id', PaginationSchema.parse({}))).toEqual({
+    expect(
+      await service.findAll('owner-id', BaseQuerySchema.parse({})),
+    ).toEqual({
       message: '📦 Documents retrieved successfully! Smooth sailing! 😎',
       data: [],
       paging: { currentPage: 1, pageSize: 10, totalItems: 0, totalPages: 0 },
     });
   });
 
-  it('uses the shared pagination validation and query coercion', () => {
-    expect(PaginationSchema.parse({ page: '2', limit: '20' })).toEqual({ page: 2, limit: 20 });
-    for (const query of [{ page: '0' }, { limit: '101' }, { page: '1.5' }, { limit: 'abc' }]) {
-      expect(PaginationSchema.safeParse(query).success).toBe(false);
+  it('validates shared query fields and coerces pagination', () => {
+    expect(
+      BaseQuerySchema.parse({
+        page: '2',
+        limit: '20',
+        q: '  report  ',
+        order: 'asc',
+      }),
+    ).toEqual({
+      page: 2,
+      limit: 20,
+      q: 'report',
+      order: 'asc',
+    });
+    expect(BaseQuerySchema.parse({})).toEqual({
+      page: 1,
+      limit: 10,
+      order: 'desc',
+    });
+    for (const query of [
+      { page: '0' },
+      { limit: '101' },
+      { page: '1.5' },
+      { limit: 'abc' },
+      { q: 123 },
+      { q: 'a'.repeat(256) },
+      { order: 'newest' },
+    ]) {
+      expect(BaseQuerySchema.safeParse(query).success).toBe(false);
     }
   });
 });

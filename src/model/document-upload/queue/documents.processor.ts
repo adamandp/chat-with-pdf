@@ -17,6 +17,7 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
 import { MilvusService } from '../../../common/milvus/milvus.service';
 import { DocumentStatus } from '../../../generated/prisma/enums';
 import { GeminiService } from '../../../common/ai/gemini.service';
+import { ConflictException } from '@nestjs/common';
 
 @Processor(DOCUMENT_QUEUE.DOCUMENTS.NAME)
 export class DocumentsProcessor extends WorkerHost {
@@ -32,7 +33,10 @@ export class DocumentsProcessor extends WorkerHost {
   }
 
   private async getDocument(documentId: string): Promise<Uint8Array> {
-    const stream = await this.storage.getObject(this.storage.bucket, documentId);
+    const stream = await this.storage.getObject(
+      this.storage.bucket,
+      documentId,
+    );
 
     const buffers: Buffer[] = [];
 
@@ -78,25 +82,9 @@ export class DocumentsProcessor extends WorkerHost {
     }
   }
 
-  private async createMetadata(documentId: string, userId: string) {
-    const document = await this.prisma.document.findFirstOrThrow({
-      where: {
-        id: documentId,
-        userId,
-      },
-      select: {
-        id: true,
-        userId: true,
-        fileName: true,
-      },
-    });
-
-    return document;
-  }
-
   private async chunkDocument(
     extracted: PdfExtraction,
-    document: Awaited<ReturnType<DocumentsProcessor['createMetadata']>>,
+    document: { id: string; userId: string; fileName: string | null },
   ): Promise<Chunk[]> {
     const splitter = new RecursiveCharacterTextSplitter({
       chunkSize: 1000,
@@ -153,19 +141,19 @@ export class DocumentsProcessor extends WorkerHost {
       const batch = chunks.slice(i, i + batchSize);
 
       const vectors = await embeddings.embedDocuments(
-        batch.map(
-          (c) => c.content,
-        ),
+        batch.map((c) => c.content),
       );
 
       if (vectors.length !== batch.length) {
         throw new Error('Embedding count does not match chunk count');
       }
 
-      result.push(...batch.map((chunk, index) => ({
-        ...chunk,
-        embedding: vectors[index],
-      })));
+      result.push(
+        ...batch.map((chunk, index) => ({
+          ...chunk,
+          embedding: vectors[index],
+        })),
+      );
     }
 
     return result;
@@ -194,8 +182,12 @@ export class DocumentsProcessor extends WorkerHost {
     pageCount: number,
     chunkCount: number,
   ) {
-    await this.prisma.document.update({
-      where: { id: documentId },
+    const result = await this.prisma.document.updateMany({
+      where: {
+        id: documentId,
+        status: DocumentStatus.PROCESSING,
+        deletedAt: null,
+      },
       data: {
         pageCount,
         chunkCount,
@@ -203,20 +195,35 @@ export class DocumentsProcessor extends WorkerHost {
         errorMessage: null,
       },
     });
+    if (!result.count) {
+      throw new ConflictException('Document is no longer processing');
+    }
   }
 
   async process(job: Job<ProcessDocumentType>): Promise<void> {
     const { documentId, userId } = job.data;
 
-    const document = await this.createMetadata(documentId, userId);
-
-    await this.prisma.document.update({
-      where: { id: documentId },
+    const claimed = await this.prisma.document.updateManyAndReturn({
+      where: {
+        id: documentId,
+        userId,
+        status: DocumentStatus.QUEUED,
+        deletedAt: null,
+      },
       data: {
         status: DocumentStatus.PROCESSING,
         errorMessage: null,
       },
     });
+    if (!claimed.length) {
+      this.logger.warn(
+        { documentId },
+        'Skipping document outside queued lifecycle',
+      );
+      return;
+    }
+
+    const document = claimed[0];
 
     await job.updateProgress(5);
 
@@ -244,11 +251,7 @@ export class DocumentsProcessor extends WorkerHost {
 
     await job.updateProgress(95);
 
-    await this.saveMetadata(
-      documentId,
-      extracted.pageCount,
-      embedded.length,
-    );
+    await this.saveMetadata(documentId, extracted.pageCount, embedded.length);
 
     await job.updateProgress(100);
 

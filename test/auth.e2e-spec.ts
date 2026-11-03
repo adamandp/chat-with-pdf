@@ -11,8 +11,12 @@ const require = createRequire(`${process.cwd()}/test/loader.cjs`);
 
 const { AppModule } = require('../dist/app.module');
 
-const { DocumentsProcessor } = require('../dist/model/document-upload/queue/documents.processor');
-const { DocumentsListener } = require('../dist/model/document-upload/queue/document-progress.service');
+const {
+  DocumentsProcessor,
+} = require('../dist/model/document-upload/queue/documents.processor');
+const {
+  DocumentsListener,
+} = require('../dist/model/document-upload/queue/document-progress.service');
 
 const { MilvusService } = require('../dist/common/milvus/milvus.service');
 
@@ -21,6 +25,9 @@ const { PrismaService } = require('../dist/common/prisma/prisma.service');
 const { StorageService } = require('../dist/common/storage/storage.service');
 
 const { SessionService } = require('../dist/model/session/session.service');
+const {
+  LoginRateLimitService,
+} = require('../dist/model/auth/login-rate-limit.service');
 
 // Uses the configured development database; removes only records created here.
 describe('auth with PostgreSQL (e2e)', () => {
@@ -46,6 +53,9 @@ describe('auth with PostgreSQL (e2e)', () => {
       .useValue({})
       .overrideProvider(MilvusService)
       .useValue({})
+      // Avoid writing shared-IP rate limit counters to a development database.
+      .overrideProvider(LoginRateLimitService)
+      .useValue({ consume: vi.fn() })
       .compile();
 
     app = module.createNestApplication();
@@ -108,6 +118,10 @@ describe('auth with PostgreSQL (e2e)', () => {
       .auth(devices[0].access, { type: 'bearer' })
       .expect(200);
     await request(server)
+      .get('/auth/profile')
+      .auth(devices[2].access, { type: 'bearer' })
+      .expect(200);
+    await request(server)
       .post('/auth/login')
       .send({ username, password })
       .expect(200);
@@ -129,6 +143,10 @@ describe('auth with PostgreSQL (e2e)', () => {
       .expect(200);
     await request(server)
       .get('/auth/profile')
+      .auth(devices[2].access, { type: 'bearer' })
+      .expect(200);
+    await request(server)
+      .get('/auth/profile')
       .auth(devices[0].access, { type: 'bearer' })
       .expect(401);
     await request(server)
@@ -140,6 +158,16 @@ describe('auth with PostgreSQL (e2e)', () => {
       .auth(devices[0].access, { type: 'bearer' })
       .expect(401);
     await request(server).get('/chat-sessions').expect(401);
+
+    const refreshed = await request(server)
+      .post('/session/refresh')
+      .set('Cookie', devices[2].cookie)
+      .expect(200);
+    expect(refreshed.body.data).toEqual({ accessToken: expect.any(String) });
+    expect(jwt.decode(refreshed.body.data.accessToken).sid).toBe(
+      devices[2].sid,
+    );
+    expect(refreshed.headers['set-cookie']).toBeUndefined();
     await request(server)
       .post('/auth/logout-all')
       .auth(devices[2].access, { type: 'bearer' })
@@ -157,6 +185,27 @@ describe('auth with PostgreSQL (e2e)', () => {
       .expect(401);
   });
 
+  it('refuses login tokens for inactive and soft-deleted users', async () => {
+    const server = app.getHttpServer();
+    for (const data of [
+      { isActive: false },
+      { isActive: true, deletedAt: new Date() },
+    ]) {
+      await db.user.update({ where: { id: userId }, data });
+      try {
+        await request(server)
+          .post('/auth/login')
+          .send({ username, password })
+          .expect(401);
+      } finally {
+        await db.user.update({
+          where: { id: userId },
+          data: { isActive: true, deletedAt: null },
+        });
+      }
+    }
+  });
+
   it('keeps at most five sessions during concurrent logins', async () => {
     await Promise.all(
       Array.from({ length: 8 }, () =>
@@ -169,5 +218,4 @@ describe('auth with PostgreSQL (e2e)', () => {
       }),
     ).toBe(5);
   });
-
 });

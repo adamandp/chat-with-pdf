@@ -2,10 +2,18 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import type { MessageEvent } from '@nestjs/common';
 import type { DocumentChunk } from '../../common/milvus/milvus.interface';
+import type {
+  ChatHistory,
+  ChatSession,
+  Document,
+  FeedbackType,
+} from '../../generated/prisma/client';
 import {
   sendChatSchema,
   chatHistorySchema,
   completionSchema,
+  forkChatSchema,
+  regenerateChatSchema,
 } from './chat.validation';
 
 export class CompletionDTO
@@ -16,11 +24,68 @@ export class SendChatDTO
   extends createZodDto(sendChatSchema)
   implements z.infer<typeof sendChatSchema> {}
 
+export class ForkChatDTO
+  extends createZodDto(forkChatSchema)
+  implements z.infer<typeof forkChatSchema> {}
+
+export class RegenerateChatDTO
+  extends createZodDto(regenerateChatSchema)
+  implements z.infer<typeof regenerateChatSchema> {}
+
+export interface ForkChatResDTO {
+  id: string;
+  title: string;
+}
+
 export class ChatHistoryDTO
   extends createZodDto(chatHistorySchema)
   implements z.infer<typeof chatHistorySchema> {}
 
 export type ChatHistoryContext = Pick<ChatHistoryDTO, 'role' | 'content'>;
+
+export type ChatDetailDocumentDto = Pick<
+  Document,
+  'id' | 'fileName' | 'pageCount' | 'status' | 'deletedAt'
+>;
+
+export interface ChatDetailSourceDto {
+  documentId: string;
+  pageNumber: number;
+}
+
+export type ChatDetailMessageDto = Pick<
+  ChatHistory,
+  | 'id'
+  | 'role'
+  | 'content'
+  | 'status'
+  | 'createdAt'
+  | 'parentMessageId'
+  | 'versionGroupId'
+> & {
+  sources: ChatDetailSourceDto[];
+  feedback: FeedbackType | null;
+  versionCount: number;
+  versions: {
+    id: string;
+    status: ChatHistory['status'];
+    createdAt: Date | null;
+    active: boolean;
+  }[];
+};
+
+export type FindChatDetailResDto = Pick<
+  ChatSession,
+  | 'id'
+  | 'title'
+  | 'answerMode'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'activeLeafMessageId'
+> & {
+  documents: ChatDetailDocumentDto[];
+  messages: ChatDetailMessageDto[];
+};
 
 export type ChatMessageState = Pick<
   ChatHistoryDTO,
@@ -58,13 +123,14 @@ export interface SendChatErrorDTO {
   message: string;
 }
 
-export type SendChatEvent = Omit<MessageEvent, 'type' | 'data'> & (
-  | { type: 'started'; data: SendChatStartedDTO }
-  | { type: 'sources'; data: SendChatSourcesDTO }
-  | { type: 'token'; data: ChatTokenDTO }
-  | { type: 'done'; data: SendChatDoneDTO }
-  | { type: 'error'; data: SendChatErrorDTO }
-);
+export type SendChatEvent = Omit<MessageEvent, 'type' | 'data'> &
+  (
+    | { type: 'started'; data: SendChatStartedDTO }
+    | { type: 'sources'; data: SendChatSourcesDTO }
+    | { type: 'token'; data: ChatTokenDTO }
+    | { type: 'done'; data: SendChatDoneDTO }
+    | { type: 'error'; data: SendChatErrorDTO }
+  );
 
 export type RagInput = Pick<SendChatDTO, 'question' | 'answerMode'> &
   Pick<CompletionDTO, 'model'> & {
@@ -89,4 +155,8 @@ export type PreparedChat = Pick<RagInput, 'documentIds' | 'history' | 'model'> &
   Pick<ChatHistoryDTO, 'sessionId'> & {
     assistantId: ChatHistoryDTO['id'];
     completionId: CompletionDTO['id'];
+    question: string;
+    answerMode: SendChatDTO['answerMode'];
+    mode: SendChatDTO['mode'];
+    previousActiveLeafMessageId?: string | null;
   };
