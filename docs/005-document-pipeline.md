@@ -1,4 +1,10 @@
-# PDF upload and chat
+# PDF upload and chat — historical design note
+
+> **Historical document, not the current API or processing implementation.**
+> The original reservation/finalization and synchronous-chat design below has
+> been replaced. Use [current API reference](API.md),
+> [upload contract](api/document-upload.md), [chat contract](api/chat.md), and
+> [current processing notes](document-processing.md) for implemented behavior.
 
 The implementation lives in this NestJS repository. Shared clients follow
 `src/common/ai`, `src/common/storage`, and the existing Prisma/Milvus services.
@@ -34,28 +40,21 @@ API authentication uses the existing Nest JWT/session guard and `CurrentUser`.
 All public request/response keys retain the earlier snake_case contract.
 Input validation now uses Nest's existing Zod pipe and returns HTTP 400.
 
-## Frontend flow
+## Frontend flow (current API)
 
-The detailed contract is `docs/document-api.yaml`. Authenticate requests to Nest
-with the existing bearer access token.
+For the active endpoint contract, see [Document Upload API](api/document-upload.md)
+and [Chat API](api/chat.md):
 
-1. `POST /presigned-url` with `{"filename":"report.pdf"}` returns
-   `data.upload_id`, `upload_url`, `object_key`, `method=PUT`, and `expires_in=900`.
-2. PUT raw PDF bytes directly to `upload_url`. Do not send the Nest token to
-   MinIO or wrap the PDF in a multipart form.
-3. `POST /documents/upload` with `{"upload_id":"<uuid>"}` returns HTTP 202
-   and `data.id`, processing status, metadata and a 15-minute download URL.
-   Repeating the reservation returns the same document/job.
-4. Poll `GET /documents/<id>` until `ready` or `failed`; this refreshes the URL.
-5. `POST /chat` with `{"question":"…","document_ids":["<uuid>"]}` creates
-   a conversation. Supply the returned `session_id` for subsequent turns.
+1. `POST /document-upload/presigned-url` with `{ "fileName": "report.pdf" }` returns a `document_id` and temporary `upload_url`.
+2. `PUT` raw PDF bytes directly to the signed MinIO URL (without the NestJS bearer token).
+3. `POST /document-upload/:id/process` enqueues processing through BullMQ.
+4. `GET /document-upload/:id/progress` streams progress over SSE until `READY` or `FAILED`. `GET /documents/:id` provides document details.
+5. `POST /chat/send` accepts camelCase fields such as `question`, `documentIds`, `sessionId`, `mode`, and `answerMode` and streams chat SSE events.
 
-The chat response includes `answer`, `sources`, `session_id`, `message_id`,
-`search_attempts`, and `context_sufficient`. Citations identify document, filename,
-chunk and 1-based page. Existing chat-history endpoints return stored sources.
-Context sufficiency is an LLM judgment, not proof of answer correctness.
+The sections below preserve original design assumptions for historical context;
+they are **not** guarantees of the current service.
 
-## Processing guarantees and limits
+## Processing guarantees and limits (historical proposal)
 
 - Upload finalization validates the PDF, hashes it and freezes a private copy.
   Reusing the temporary PUT URL cannot change that indexed copy. Metadata and
@@ -80,7 +79,7 @@ Context sufficiency is an LLM judgment, not proof of answer correctness.
   temporary uploads/orphaned objects. Presigned PUT sizes are validated at
   finalization; the PUT itself does not enforce the application size limit.
 
-## Verification
+## Verification (historical proposal)
 
 `npm run build`, `npm test`, and `npm run lint` cover compilation and unit checks.
 The opt-in `npm run test:rag` runs the HTTP pipeline using actual Nest JWT auth,
@@ -116,13 +115,13 @@ Gemini provider and key, its own `test_` collection, and optionally `LIVE_PDF_PA
 for a PDF explicitly authorized to be sent to Gemini. Default PDF is synthetic.
 The suite only accepts database name `rag_test` and a `test_` collection.
 
-## AI health
+## AI health (historical proposal)
 
 Call `GET /health/ai` with the existing bearer access token. The endpoint sends a small real request to the configured chat model and returns HTTP 200 with `data: {status: ok, ai: up}` when it responds with nonempty text. Configuration errors, provider failures, empty responses and the ten-second timeout return HTTP 503 with `data: {status: error, ai: down}`. Provider details and API keys are not exposed. This checks the chat provider only, consumes provider quota, and does not probe embeddings, PostgreSQL or Milvus.
 
 The isolated HTTP client test can be run with `RUN_AI_HEALTH_INTEGRATION=1 npx vitest run --config vitest.config.e2e.ts test/ai-health.e2e-spec.ts`. For simulation, use the same OpenAI fixture settings above; for a live check, select Gemini with the key in `.env`. The test fixture exercises HTTP routing and the real model client without starting database/vector clients; application authentication remains the existing global guard.
 
-## MinIO health
+## MinIO health (historical proposal)
 
 `GET /health/minio` uses the existing bearer access token and checks access to
 the configured bucket without uploading/downloading files. Returns HTTP 200

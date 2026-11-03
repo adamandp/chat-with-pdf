@@ -1,6 +1,6 @@
 # Chat With PDF — API Reference
 
-Frontend-facing HTTP/SSE contracts. These pages describe the current NestJS routes and examples; legacy implementation notes in `docs/` are not the frontend API source of truth.
+Frontend-facing HTTP/SSE contracts. These are the maintained NestJS route and DTO references. Historical implementation notes elsewhere in `docs/` are not an API specification; obsolete standalone OpenAPI/Markdown contracts have been removed.
 
 Backend schema and DTO conventions: [Validation & DTO Rules](../rules/validation.md).
 
@@ -21,7 +21,9 @@ Backend schema and DTO conventions: [Validation & DTO Rules](../rules/validation
 - Login and refresh use the `refreshToken` HTTP-only cookie; frontend requests must include credentials for those routes.
 - Ordinary success responses use `message` and, when applicable, `data` and `paging`.
 - `paging` contains `currentPage`, `pageSize`, `totalItems`, `totalPages`; request query keys are `page` and `limit` (defaults 1/10, accepted 1–100).
-- `POST /chat/send` and `GET /document-upload/:id/progress` return **text/event-stream**, not a `message`/`data` JSON envelope.
+- Chat session lists support `q` (case-insensitive title search) and `order=asc|desc`; active sessions keep pinned chats first.
+- Document and Trash lists support `q` (case-insensitive filename search), `order=asc|desc`, and `sort=modified|name|pages` (default `modified`). All filters apply before pagination.
+- `POST /chat/send`, `POST /chat/:messageId/edit`, `POST /chat/:messageId/regenerate`, and `GET /document-upload/:id/progress` return **text/event-stream**, not a `message`/`data` JSON envelope.
 - JSON errors are emitted through Nest's exceptions and can differ from success envelopes; do not assume an identical schema for all errors.
 - Standard POST statuses: register 201, login/logout/logout-all/refresh/restore 200, presigned-url/process 201. Retry is a TODO stub.
 
