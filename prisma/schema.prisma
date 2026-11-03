@@ -9,6 +9,13 @@ datasource db {
   provider = "postgresql"
 }
 
+enum AccountType {
+  GUEST      @map("guest")
+  REGISTERED @map("registered")
+
+  @@map("account_type")
+}
+
 enum FeedbackType {
   LIKE    @map("like")
   DISLIKE @map("dislike")
@@ -43,6 +50,7 @@ model User {
   username     String?   @unique @map("username") @db.VarChar(255)
   name         String?   @map("name") @db.VarChar(255)
   passwordHash String?   @map("password_hash") @db.Text
+  accountType  AccountType @default(REGISTERED) @map("account_type")
   role         String    @default("user") @map("role") @db.VarChar(20)
   isActive     Boolean   @default(true) @map("is_active")
   createdAt    DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
