@@ -1,9 +1,10 @@
 interface JwtPayload {
   sub: string;
+  sid: string;
 }
 
 interface CreateTokenDTO {
-  payload: JwtPayload;
+  payload: Pick<JwtPayload, 'sub'>;
 }
 
 interface RefreshAccessTokenResDTO {

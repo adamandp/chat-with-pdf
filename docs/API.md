@@ -22,9 +22,10 @@ The direct MinIO signed `PUT` described in the documents guide is **not** a Nest
 - There is **no global `/api` or `/v1` prefix** in `src/main.ts`.
 - Protected endpoints require `Authorization: Bearer <access-jwt>`.
 - Access JWT lifetime: **15 minutes**. Refresh JWT lifetime: **7 days**.
-- Login sets `refreshToken` in an HttpOnly, `SameSite=Lax` cookie (`Secure` when `NODE_ENV=production`), and returns access token in JSON.
+- Login sets `refreshToken` in an HttpOnly, `SameSite=Lax` cookie by default (`Secure` when `NODE_ENV=production`), and returns access token in JSON. `AUTH_COOKIE_SAME_SITE=none` supports HTTPS cross-site cookies.
 - `POST /session/refresh` and `POST /auth/logout` use the refresh cookie. `POST /auth/logout-all` uses the Bearer token.
-- Cross-origin browser clients should send credentials for cookie-bearing requests. CORS allows configured `FRONTEND_ORIGINS` with credentials enabled; cross-site cookie deployments require review of SameSite and Secure behavior.
+- Cross-origin browser clients should send credentials for cookie-bearing requests. CORS allows configured `FRONTEND_ORIGINS` with credentials enabled; refresh/logout check `Origin` when present.
+- JWTs identify user (`sub`) and database session (`sid`). Refresh preserves the same cookie/session, logout revokes only that session. Login is limited to 30 requests/IP and 10 requests/username per 15 minutes (429 with `Retry-After`).
 
 ## Common JSON response format
 

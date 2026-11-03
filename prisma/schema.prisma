@@ -71,6 +71,15 @@ model AuthSession {
   @@map("auth_sessions")
 }
 
+model AuthRateLimit {
+  key      String   @id @db.VarChar(64)
+  attempts Int
+  resetAt  DateTime @map("reset_at") @db.Timestamptz(6)
+
+  @@index([resetAt])
+  @@map("auth_rate_limits")
+}
+
 model ChatSession {
   id                  String    @id @default(uuid()) @map("id") @db.Uuid
   userId              String    @map("user_id") @db.Uuid

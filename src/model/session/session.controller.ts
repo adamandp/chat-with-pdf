@@ -1,15 +1,13 @@
-import {
-  Controller,
-  Post,
-  Req,
-  HttpCode,
-  HttpStatus,
-} from '@nestjs/common';
+import { Controller, Post, Req, HttpCode, HttpStatus } from '@nestjs/common';
 import { SessionService } from './session.service.js';
 import { Public } from '../../decorators/public.decorator.js';
-import type { CookieRequest, WebResponse } from '../../common/common.interface.js';
+import type {
+  CookieRequest,
+  WebResponse,
+} from '../../common/common.interface.js';
 import { RefreshAccessTokenResDTO } from './session.interface.js';
 import { PinoLogger } from 'nestjs-pino';
+import { assertTrustedCookieOrigin } from './refresh-cookie.js';
 
 @Controller('session')
 export class SessionController {
@@ -26,10 +24,11 @@ export class SessionController {
   async refreshAccessToken(
     @Req() request: CookieRequest,
   ): Promise<WebResponse<RefreshAccessTokenResDTO>> {
+    assertTrustedCookieOrigin(request);
     this.logger.debug('refresh access token hitted');
 
-    const { message, data }
-      = await this.sessionService.refreshAccessToken(request);
+    const { message, data } =
+      await this.sessionService.refreshAccessToken(request);
 
     return {
       message,
