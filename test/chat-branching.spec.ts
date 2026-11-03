@@ -407,6 +407,62 @@ describe('chat fork / regenerate / edit / activate', () => {
     });
   });
 
+  it('allows editing in document-only mode without attached PDFs', async () => {
+    const x = setup();
+    x.tx.chatHistory.findFirst.mockResolvedValueOnce({
+      role: 'user',
+      status: 'COMPLETED',
+      parentMessageId: null,
+      versionGroupId: group,
+    });
+    const events = await lastValueFrom(
+      (
+        await x.service.edit(userId, questionId, {
+          sessionId,
+          question: 'Question without a PDF',
+          mode: 'quick',
+          answerMode: 'document_only',
+        })
+      ).pipe(toArray()),
+    );
+    expect(events.at(-1)).toMatchObject({ type: 'done' });
+    expect(x.rag.run.mock.calls[0][0]).toMatchObject({
+      answerMode: 'document_only',
+      documentIds: [],
+    });
+    expect(x.tx.document.count).not.toHaveBeenCalled();
+  });
+
+  it('allows regenerating a document-only answer when no READY PDFs remain', async () => {
+    const x = setup();
+    x.tx.sessionDocument.findMany.mockResolvedValue([]);
+    x.tx.chatHistory.findFirst
+      .mockResolvedValueOnce({
+        role: 'assistant',
+        status: 'COMPLETED',
+        parentMessageId: questionId,
+        versionGroupId: group,
+        answerMode: 'document_only',
+      })
+      .mockResolvedValueOnce({
+        role: 'user',
+        status: 'COMPLETED',
+        parentMessageId: null,
+        content: 'Original question',
+        answerMode: 'document_only',
+      });
+    const events = await lastValueFrom(
+      (await x.service.regenerate(userId, answerId, { mode: 'quick' })).pipe(
+        toArray(),
+      ),
+    );
+    expect(events.at(-1)).toMatchObject({ type: 'done' });
+    expect(x.rag.run.mock.calls[0][0]).toMatchObject({
+      answerMode: 'document_only',
+      documentIds: [],
+    });
+  });
+
   it('refuses editing foreign messages and leaves the original branch intact', async () => {
     const x = setup();
     x.tx.chatHistory.findFirst.mockResolvedValue(null);
@@ -458,5 +514,25 @@ describe('chat fork / regenerate / edit / activate', () => {
       status: 404,
     });
     expect(y.tx.chatHistory.create).not.toHaveBeenCalled();
+  });
+
+  it('allows sending document-only chat without PDF IDs', async () => {
+    const x = setup();
+    const events = await lastValueFrom(
+      (
+        await x.service.send(userId, {
+          question: 'What is in my PDFs?',
+          sessionId,
+          mode: 'quick',
+          answerMode: 'document_only',
+        })
+      ).pipe(toArray()),
+    );
+    expect(events.at(-1)).toMatchObject({ type: 'done' });
+    expect(x.rag.run.mock.calls[0][0]).toMatchObject({
+      answerMode: 'document_only',
+      documentIds: [],
+    });
+    expect(x.tx.document.count).not.toHaveBeenCalled();
   });
 });

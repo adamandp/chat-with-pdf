@@ -60,7 +60,12 @@ describe('ChatSession pin/unpin', () => {
     expect(prisma.chatSession.findMany).toHaveBeenCalledWith({
       where: { userId: 'owner', deletedAt: null },
       select: { id: true, title: true, isPinned: true, updatedAt: true },
-      orderBy: [{ isPinned: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
+      orderBy: [
+        { isPinned: 'desc' },
+        { lastMessageAt: { sort: 'desc', nulls: 'last' } },
+        { updatedAt: 'desc' },
+        { id: 'desc' },
+      ],
       skip: 5,
       take: 5,
     });

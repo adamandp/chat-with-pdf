@@ -50,7 +50,7 @@ Accept: text/event-stream
 }
 ```
 
-**Validation note:** `answerMode: document_only` requires at least one document ID. Input Zod object is strict: unexpected fields are rejected.
+**Validation note:** `documentIds` is optional for both answer modes. With `document_only` and no matching PDF evidence, the stream returns the no-evidence explanation without calling the chat model. Input Zod object is strict: unexpected fields are rejected.
 
 ### Success response — 200 OK (SSE)
 
@@ -94,7 +94,7 @@ data: {"messageId":"550e8400-e29b-41d4-a716-446655440000","message":"Chat genera
 
 | Status | Condition |
 | --- | --- |
-| 400 | Invalid DTO, or document-only without document IDs |
+| 400 | Invalid DTO |
 | 401 | Missing or invalid access token |
 | 404 | Session ID missing, deleted, or owned by a different user |
 | 409 | Another generation is currently streaming in this session |

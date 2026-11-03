@@ -498,13 +498,6 @@ export class ChatService {
   ): Promise<PreparedChat> {
     const model = this.config.getOrThrow<string>('GROQ_CHAT_MODEL');
 
-    // Validate Document mode
-    if (body.answerMode === 'document_only' && !body.documentIds?.length) {
-      throw new BadRequestException(
-        'Document mode requires at least one document',
-      );
-    }
-
     return this.prisma.$transaction(async (tx) => {
       let session: Pick<LockedSession, 'id' | 'activeLeafMessageId'>;
 
@@ -616,11 +609,6 @@ export class ChatService {
       }
       const documentIds = body.documentIds ?? [];
       const answerMode = body.answerMode ?? 'general';
-      if (answerMode === 'document_only' && !documentIds.length) {
-        throw new BadRequestException(
-          'Document mode requires at least one document',
-        );
-      }
       await this.attachDocuments(tx, userId, session.id, documentIds);
 
       const history = await this.getHistory(
@@ -749,11 +737,6 @@ export class ChatService {
       if (answerMode !== 'general' && answerMode !== 'document_only') {
         throw new BadRequestException(
           'Unsupported answer mode on original message',
-        );
-      }
-      if (answerMode === 'document_only' && documentIds.length === 0) {
-        throw new BadRequestException(
-          'Document mode requires at least one ready document',
         );
       }
       const history = await this.getHistory(

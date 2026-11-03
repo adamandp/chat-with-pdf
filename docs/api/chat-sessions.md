@@ -61,7 +61,7 @@ Authorization: Bearer <access-jwt>
 | 400 | Invalid pagination |
 | 401 | Invalid or missing access JWT |
 
-**Notes:** only `deletedAt: null` rows owned by the caller are included. The query sorts by `isPinned DESC`, then `updatedAt DESC`, then `id DESC`, **before pagination**. Pinned sessions appear first even across multiple pages.
+**Notes:** only `deletedAt: null` rows owned by the caller are included. The query sorts by `isPinned DESC`, then `lastMessageAt DESC NULLS LAST`, `updatedAt DESC`, and `id DESC`, **before pagination**. Pinned sessions appear first even across multiple pages; sessions without messages sort by their update time after sessions with messages.
 
 ## 2. List Deleted Chat Sessions
 
@@ -333,6 +333,5 @@ List, update, soft delete, permanent delete and restore return **only** the foll
 
 ## Known issues and missing endpoints
 
-- Session list sorts by `updatedAt`, but new chat messages update `lastMessageAt` without explicitly updating `updatedAt`.
 - Message listing fetches all branch histories rather than the active branch and does not paginate.
-- Chat session controllers do not offer search, pin/unpin, or session-document list/attach/detach. Fork, regenerate, edit, feedback and version activation live under `/chat` (see [Chat](chat.md)).
+- Chat session controllers do not offer search or session-document list/attach/detach. Pin/unpin is supported through session update; fork, regenerate, edit, feedback and version activation live under `/chat` (see [Chat](chat.md)).
