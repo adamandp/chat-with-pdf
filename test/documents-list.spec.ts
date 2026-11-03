@@ -5,6 +5,7 @@ const {
   DocumentsService,
 } = require('../dist/model/documents/documents.service');
 const { BaseQuerySchema } = require('../dist/common/common.dto');
+const { DocumentQuerySchema } = require('../dist/model/documents/documents.validation');
 
 describe('DocumentsService.findAll', () => {
   function setup(documents: object[] = [], totalItems = 0) {
@@ -98,6 +99,110 @@ describe('DocumentsService.findAll', () => {
       { order: 'newest' },
     ]) {
       expect(BaseQuerySchema.safeParse(query).success).toBe(false);
+    }
+  });
+
+  it('supports case-insensitive filename search, order and total counts for ready documents', async () => {
+    const { service, prisma } = setup([], 2);
+    const result = await service.findAll(
+      'owner',
+      DocumentQuerySchema.parse({
+        page: 2,
+        limit: 4,
+        q: '  RePoRt  ',
+        sort: 'name',
+        order: 'asc',
+      }),
+    );
+    const where = {
+      userId: 'owner',
+      status: 'READY',
+      deletedAt: null,
+      fileName: { contains: 'RePoRt', mode: 'insensitive' },
+    };
+    expect(prisma.document.findMany).toHaveBeenCalledWith({
+      where,
+      orderBy: [
+        { fileName: { sort: 'asc', nulls: 'last' } },
+        { id: 'asc' },
+      ],
+      skip: 4,
+      take: 4,
+    });
+    expect(prisma.document.count).toHaveBeenCalledWith({ where });
+    expect(result.paging).toEqual({
+      currentPage: 2,
+      pageSize: 4,
+      totalItems: 2,
+      totalPages: 1,
+    });
+  });
+
+  it('applies search and page-count sorting to Trash without leaking active documents', async () => {
+    const { service, prisma } = setup();
+    await service.findDeleted(
+      'owner',
+      DocumentQuerySchema.parse({ q: 'invoice', sort: 'pages', order: 'desc' }),
+    );
+    const where = {
+      userId: 'owner',
+      status: 'READY',
+      deletedAt: { not: null },
+      fileName: { contains: 'invoice', mode: 'insensitive' },
+    };
+    expect(prisma.document.findMany).toHaveBeenCalledWith({
+      where,
+      orderBy: [
+        { pageCount: { sort: 'desc', nulls: 'last' } },
+        { id: 'desc' },
+      ],
+      skip: 0,
+      take: 10,
+    });
+    expect(prisma.document.count).toHaveBeenCalledWith({ where });
+  });
+
+  it('uses modified date sorting by default and supports ascending order', async () => {
+    const { service, prisma } = setup();
+    await service.findAll('owner', DocumentQuerySchema.parse({ order: 'asc' }));
+    expect(prisma.document.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
+      }),
+    );
+    await service.findAll('owner', DocumentQuerySchema.parse({ q: '   ' }));
+    expect(prisma.document.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { userId: 'owner', status: 'READY', deletedAt: null },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      }),
+    );
+  });
+
+  it('validates document-specific sort and inherits base pagination defaults', () => {
+    expect(DocumentQuerySchema.parse({})).toEqual({
+      page: 1,
+      limit: 10,
+      order: 'desc',
+      sort: 'modified',
+    });
+    expect(
+      DocumentQuerySchema.parse({
+        page: '2',
+        limit: '5',
+        q: '  file  ',
+        sort: 'pages',
+        order: 'asc',
+      }),
+    ).toEqual({
+      page: 2,
+      limit: 5,
+      q: 'file',
+      order: 'asc',
+      sort: 'pages',
+    });
+    for (const sort of ['created', 'size', 'invalid']) {
+      expect(DocumentQuerySchema.safeParse({ sort }).success).toBe(false);
     }
   });
 });
