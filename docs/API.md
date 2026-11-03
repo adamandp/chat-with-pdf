@@ -63,7 +63,7 @@ Fields are optional. For instance register returns only `message`, while refresh
 
 ## Pagination
 
-List endpoints accept `?page=1&limit=10`. Both are integers from 1 through 100; defaults are `page=1` and `limit=10`. Response paging fields: `currentPage`, `pageSize`, `totalItems`, `totalPages`. An empty collection can return `totalPages: 0`.
+List endpoints accept `?page=1&limit=10`. Both are integers from 1 through 100; defaults are `page=1` and `limit=10`. Chat Session and Document lists also accept `q` (trimmed, max 255 characters; case-insensitive title/filename substring search) and `order=asc|desc` (default `desc`). Document lists additionally accept `sort=modified|name|pages` (default `modified`). Chat Session lists retain pinned-first ordering for active chats; the order controls time/tie-breaker direction. Filtering and sorting happen before pagination, and `totalItems` counts matching rows. Response paging fields: `currentPage`, `pageSize`, `totalItems`, `totalPages`. An empty collection can return `totalPages: 0`.
 
 ## Integration guides
 
