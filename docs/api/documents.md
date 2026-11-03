@@ -17,14 +17,17 @@ All success responses use `WebResponse` (`message`, optional `data` and `paging`
 
 ## 1. List ready documents
 
-**GET `/documents?page=1&limit=10`** — 200 OK
+**GET `/documents?page=1&limit=10&q=report&sort=name&order=asc`** — 200 OK
 
 | Query | Type | Required | Validation |
 | --- | --- | --- | --- |
 | `page` | integer | No | 1–100; default 1 |
 | `limit` | integer | No | 1–100; default 10 |
+| `q` | string | No | Trimmed, max 255 characters; case-insensitive filename substring |
+| `sort` | enum | No | `modified` (default), `name`, or `pages` |
+| `order` | enum | No | `asc` or `desc` (default) |
 
-Only records with `userId` matching the access token, `status: READY` and `deletedAt: null` are included. Order: `updatedAt DESC`, then `id DESC`.
+Only records with `userId` matching the access token, `status: READY` and `deletedAt: null` are included. `q` filters `fileName` case-insensitively before pagination; the same filter is used for `totalItems`. `sort=modified` orders by `updatedAt`, `sort=name` by `fileName`, and `sort=pages` by `pageCount`, using the direction in `order`. `id` breaks ties in the same direction. Null filenames/page counts are sorted last. Defaults preserve `updatedAt DESC`, then `id DESC`.
 
 ```json
 {
@@ -36,13 +39,13 @@ Only records with `userId` matching the access token, `status: READY` and `delet
 
 The shown item is abbreviated; the actual response includes every `Document` model field. `fileSize` is converted from BigInt to a decimal string, or null.
 
-**Errors:** 400 invalid pagination; 401 unauthorized.
+**Errors:** 400 invalid pagination, query, or sort direction; 401 unauthorized.
 
 ## 2. List deleted documents
 
-**GET `/documents/deleted?page=1&limit=10`** — 200 OK
+**GET `/documents/deleted?page=1&limit=10&q=report&sort=pages&order=desc`** — 200 OK
 
-Uses the same query and response shape as `GET /documents`, except the filter is `userId`, `status: READY`, and `deletedAt IS NOT NULL`. Documents undergoing permanent deletion (`DELETING`) or already permanently deleted (`DELETED`) do not appear. The list is ordered by `updatedAt DESC`, then `id DESC`.
+Uses the same `page`, `limit`, `q`, `sort`, `order` query parameters and response shape as `GET /documents`, except the filter is `userId`, `status: READY`, and `deletedAt IS NOT NULL`. Documents undergoing permanent deletion (`DELETING`) or already permanently deleted (`DELETED`) do not appear. Search runs against `fileName`; ordering follows the selected field/direction with the same stable `id` tie-breaker. Defaults preserve `updatedAt DESC`, then `id DESC`. The total is the count of matching trashed documents.
 
 **Errors:** 400 invalid pagination; 401 unauthorized.
 
@@ -122,4 +125,4 @@ Cleanup is idempotent: missing MinIO objects are treated as already deleted. If 
 
 - Upload, processing and SSE progress routes live in [Document Upload](document-upload.md), under `/document-upload`.
 - `Document` remains the single Prisma model. No additional upload table is introduced.
-- There are no request-body DTOs for these actions; list queries use shared `BaseQueryDto`, and `:id` uses `ParseUUIDPipe`. The shared `q` and `order` fields are reserved for list filtering/sorting and do not change the current list behavior yet.
+- There are no request-body DTOs for these actions; list queries use `DocumentQueryDto` extending shared `BaseQuerySchema` with `sort`, and `:id` uses `ParseUUIDPipe`. Search and sorting apply server-side before pagination.
