@@ -32,8 +32,8 @@ export class ChatSessionService {
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.chatSession.findMany({
         where,
-        select: { id: true, title: true, updatedAt: true },
-        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        select: { id: true, title: true, isPinned: true, updatedAt: true },
+        orderBy: [{ isPinned: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -63,7 +63,7 @@ export class ChatSessionService {
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.chatSession.findMany({
         where,
-        select: { id: true, title: true, updatedAt: true },
+        select: { id: true, title: true, isPinned: true, updatedAt: true },
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * limit,
         take: limit,
@@ -113,12 +113,16 @@ export class ChatSessionService {
   async update(
     userId: string,
     id: string,
-    { title }: UpdateChatSessionDto,
+    { title, isPinned }: UpdateChatSessionDto,
   ): Promise<WebResponse<UpdateChatSessionResDto>> {
     this.logger.trace({ userId, sessionId: id }, 'Updating chat session');
     const sessions = await this.prisma.chatSession.updateManyAndReturn({
       where: { id, userId, deletedAt: null },
-      data: { title, updatedAt: new Date() },
+      data: {
+        ...(title !== undefined ? { title } : {}),
+        ...(isPinned !== undefined ? { isPinned } : {}),
+        updatedAt: new Date(),
+      },
     });
     if (!sessions.length) {
       this.logger.warn(
@@ -133,6 +137,7 @@ export class ChatSessionService {
       data: {
         id: sessions[0].id,
         title: sessions[0].title,
+        isPinned: sessions[0].isPinned,
         updatedAt: sessions[0].updatedAt,
       },
     };
@@ -160,6 +165,7 @@ export class ChatSessionService {
       data: {
         id: sessions[0].id,
         title: sessions[0].title,
+        isPinned: sessions[0].isPinned,
         updatedAt: sessions[0].updatedAt,
       },
     };
@@ -187,6 +193,7 @@ export class ChatSessionService {
       data: {
         id: sessions[0].id,
         title: sessions[0].title,
+        isPinned: sessions[0].isPinned,
         updatedAt: sessions[0].updatedAt,
       },
     };
@@ -202,9 +209,9 @@ export class ChatSessionService {
     );
     const response = await this.prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<
-        { id: string; title: string; updatedAt: Date }[]
+        { id: string; title: string; isPinned: boolean; updatedAt: Date }[]
       >`
-        SELECT id, title, updated_at AS "updatedAt"
+        SELECT id, title, is_pinned AS "isPinned", updated_at AS "updatedAt"
         FROM chat_session
         WHERE id = ${id}::uuid
           AND user_id = ${userId}::uuid
@@ -239,6 +246,7 @@ export class ChatSessionService {
         data: {
           id: locked[0].id,
           title: locked[0].title,
+          isPinned: locked[0].isPinned,
           updatedAt: locked[0].updatedAt,
         },
       };

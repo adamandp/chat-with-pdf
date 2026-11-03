@@ -255,17 +255,59 @@ describe('chat fork / regenerate / edit / activate', () => {
     expect(x.tx.completion.create).toHaveBeenCalledOnce();
   });
 
-  it('rejects regenerating an inactive answer', async () => {
+  it('regenerates an inactive answer as a sibling and switches the active branch', async () => {
     const x = setup();
     x.session.activeLeafMessageId = 'another-answer';
-    await expect(
-      x.service.regenerate(userId, answerId, { mode: 'quick' }),
-    ).rejects.toMatchObject({ status: 409 });
-    expect(x.tx.chatHistory.create).not.toHaveBeenCalled();
+    x.tx.chatHistory.findFirst
+      .mockResolvedValueOnce({
+        role: 'assistant',
+        status: 'COMPLETED',
+        parentMessageId: questionId,
+        versionGroupId: group,
+        answerMode: 'general',
+      })
+      .mockResolvedValueOnce({
+        role: 'user',
+        status: 'COMPLETED',
+        content: 'Original question',
+        parentMessageId: 'previous-answer',
+        answerMode: 'general',
+      });
+    const events = await lastValueFrom(
+      (await x.service.regenerate(userId, answerId, { mode: 'pro' })).pipe(
+        toArray(),
+      ),
+    );
+    expect(events.at(-1)).toMatchObject({ type: 'done' });
+    expect(x.tx.chatHistory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          role: 'assistant',
+          parentMessageId: questionId,
+          versionGroupId: group,
+        }),
+      }),
+    );
+    expect(x.tx.chatSession.update).toHaveBeenCalledWith({
+      where: { id: sessionId },
+      data: {
+        activeLeafMessageId: 'new-assistant',
+        lastMessageAt: expect.any(Date),
+      },
+    });
+    const historyCall = x.tx.$queryRaw.mock.calls.find(([strings]: any[]) =>
+      strings.join(' ').includes('WITH RECURSIVE ancestors'),
+    );
+    expect(historyCall?.[1]).toBe('previous-answer');
+    expect(x.rag.run.mock.calls[0][0]).toMatchObject({
+      question: 'Original question',
+    });
+    expect(x.tx.chatHistory.update).not.toHaveBeenCalled();
   });
 
   it('restores the earlier active leaf when regeneration fails', async () => {
     const x = setup();
+    x.session.activeLeafMessageId = 'another-answer';
     x.tx.chatHistory.findFirst
       .mockResolvedValueOnce({
         role: 'assistant',
@@ -290,8 +332,37 @@ describe('chat fork / regenerate / edit / activate', () => {
     expect(events.at(-1)).toMatchObject({ type: 'error' });
     expect(x.tx.chatSession.updateMany).toHaveBeenCalledWith({
       where: { id: sessionId, activeLeafMessageId: 'new-assistant' },
-      data: { activeLeafMessageId: answerId },
+      data: { activeLeafMessageId: 'another-answer' },
     });
+  });
+
+  it('rejects foreign messages, non-assistant targets and concurrent generation', async () => {
+    const foreign = setup();
+    foreign.tx.chatHistory.findUnique.mockResolvedValueOnce(null);
+    await expect(
+      foreign.service.regenerate(userId, answerId, { mode: 'quick' }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(foreign.tx.chatHistory.create).not.toHaveBeenCalled();
+
+    const wrongRole = setup();
+    wrongRole.tx.chatHistory.findFirst.mockResolvedValueOnce({
+      role: 'user',
+      status: 'COMPLETED',
+      parentMessageId: null,
+    });
+    await expect(
+      wrongRole.service.regenerate(userId, answerId, { mode: 'quick' }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(wrongRole.tx.chatHistory.create).not.toHaveBeenCalled();
+
+    const concurrent = setup();
+    concurrent.tx.chatHistory.findUnique
+      .mockResolvedValueOnce({ sessionId, deletedAt: null })
+      .mockResolvedValueOnce({ status: 'STREAMING' });
+    await expect(
+      concurrent.service.regenerate(userId, answerId, { mode: 'quick' }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(concurrent.tx.chatHistory.create).not.toHaveBeenCalled();
   });
 
   it('edits an old user question by branching under the original parent', async () => {

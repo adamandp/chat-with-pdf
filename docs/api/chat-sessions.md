@@ -9,7 +9,7 @@ Seven endpoints for managing conversation sessions. Every endpoint requires `Aut
 | GET | `/chat-sessions` | List active sessions |
 | GET | `/chat-sessions/deleted` | List soft-deleted sessions |
 | GET | `/chat-sessions/:id/chats` | Legacy: get all stored messages, including inactive branches |
-| PATCH | `/chat-sessions/:id` | Rename a session |
+| PATCH | `/chat-sessions/:id` | Rename and/or pin/unpin a session |
 | DELETE | `/chat-sessions/:id` | Soft-delete a session |
 | DELETE | `/chat-sessions/:id/permanent` | Delete a previously deleted session permanently |
 | POST | `/chat-sessions/:id/restore` | Restore a soft-deleted session |
@@ -41,6 +41,7 @@ Authorization: Bearer <access-jwt>
     {
       "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
       "title": "Financial Analysis",
+      "isPinned": true,
       "updatedAt": "2026-10-30T11:00:00.000Z"
     }
   ],
@@ -60,7 +61,7 @@ Authorization: Bearer <access-jwt>
 | 400 | Invalid pagination |
 | 401 | Invalid or missing access JWT |
 
-**Notes:** only `deletedAt: null` rows owned by the caller are included. The query sorts by `updatedAt DESC` and `id DESC`, not by `lastMessageAt`.
+**Notes:** only `deletedAt: null` rows owned by the caller are included. The query sorts by `isPinned DESC`, then `updatedAt DESC`, then `id DESC`, **before pagination**. Pinned sessions appear first even across multiple pages.
 
 ## 2. List Deleted Chat Sessions
 
@@ -89,6 +90,7 @@ Authorization: Bearer <access-jwt>
     {
       "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
       "title": "Financial Analysis",
+      "isPinned": true,
       "updatedAt": "2026-10-30T11:00:00.000Z"
     }
   ],
@@ -108,7 +110,7 @@ Authorization: Bearer <access-jwt>
 | 400 | Invalid pagination |
 | 401 | Unauthorized |
 
-**Note:** only owned sessions where `deletedAt` is not null appear.
+**Note:** only owned sessions where `deletedAt` is not null appear. `isPinned` is included, but Trash does not use pinned-first sorting.
 
 ## 3. List Chat Messages (Legacy)
 
@@ -161,7 +163,7 @@ Authorization: Bearer <access-jwt>
 
 **Notes:** retained for existing clients during migration to `GET /chat/:id/details`. Messages are sorted by creation time ascending and ID ascending. This endpoint returns the **entire stored message collection**, not the active branch selected by `activeLeafMessageId`. There is no pagination. `sources` is JSON; `status` enum values are `PENDING`, `STREAMING`, `COMPLETED`, `FAILED`, `CANCELLED`.
 
-## 4. Rename Chat Session
+## 4. Update Chat Session (Rename / Pin)
 
 **PATCH /chat-sessions/:id**
 
@@ -179,11 +181,15 @@ Content-Type: application/json
 | Parameter | Location | Type | Required | Validation |
 | --- | --- | --- | --- | --- |
 | `id` | Path | UUID | Yes | Active owned session |
-| `title` | JSON body | string | Yes | Trimmed, 1–255 chars |
+| `title` | JSON body | string | No | Trimmed, 1–255 chars |
+| `isPinned` | JSON body | boolean | No | `true` to pin, `false` to unpin |
+
+At least one of `title` or `isPinned` is required. They may be sent together.
 
 ```json
 {
-  "title": "Updated Chat Title"
+  "title": "Updated Chat Title",
+  "isPinned": true
 }
 ```
 
@@ -195,6 +201,7 @@ Content-Type: application/json
   "data": {
     "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
     "title": "Updated Chat Title",
+    "isPinned": true,
     "updatedAt": "2026-10-30T11:00:00.000Z"
   }
 }
@@ -204,7 +211,7 @@ Content-Type: application/json
 
 | Status | Condition |
 | --- | --- |
-| 400 | Invalid UUID or title |
+| 400 | Invalid UUID, empty update, title, or `isPinned` |
 | 401 | Unauthorized |
 | 404 | Active owned session not found |
 

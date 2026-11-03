@@ -222,6 +222,45 @@ describe('ChatService.findOne', () => {
     expect(prisma.chatHistory.findMany).not.toHaveBeenCalled();
   });
 
+  it('preserves deleted PDF metadata and historical citations in chat details', async () => {
+    const deletedAt = new Date('2026-11-03T01:00:00Z');
+    const { service } = setup({
+      session: {
+        id: sessionId,
+        title: 'Annual Report',
+        answerMode: 'document_only',
+        createdAt,
+        updatedAt: createdAt,
+        activeLeafMessageId: assistantMessageId,
+        sessionDocuments: [
+          {
+            document: {
+              id: 'c14161ef-8ea9-475f-902d-d7127d6c34cc',
+              fileName: 'Annual Report.pdf',
+              pageCount: 120,
+              status: 'DELETED',
+              deletedAt,
+            },
+          },
+        ],
+      },
+    });
+    const result = await service.findOne(userId, sessionId);
+    expect(result.data?.documents).toMatchObject([
+      {
+        fileName: 'Annual Report.pdf',
+        status: 'DELETED',
+        deletedAt,
+      },
+    ]);
+    expect(result.data?.messages.at(-1)?.sources).toMatchObject([
+      {
+        documentId: 'c14161ef-8ea9-475f-902d-d7127d6c34cc',
+        pageNumber: 12,
+      },
+    ]);
+  });
+
   it('hides a missing, deleted, or foreign-owned session behind a 404', async () => {
     const { service, prisma } = setup({ session: null });
 

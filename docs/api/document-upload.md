@@ -55,7 +55,7 @@ The URL itself grants temporary upload permission; do not send the backend Beare
 
 **POST `/document-upload/:id/process`** — 201 Created
 
-No body. `id` is a UUID. The service changes document status to `QUEUED` and adds a BullMQ job with `jobId = documentId`, passing `userId` and `documentId` to the worker.
+No body. `id` is a UUID. For an owned, non-trashed document outside the `DELETING`/`DELETED` lifecycle, the service changes status to `QUEUED` and adds a BullMQ job with `jobId = documentId`, passing `userId` and `documentId` to the worker. The worker claims only `QUEUED` documents; stale jobs cannot switch a permanently deleted document back to `PROCESSING` or `READY`.
 
 ```json
 {
@@ -66,7 +66,7 @@ No body. `id` is a UUID. The service changes document status to `QUEUED` and add
 
 **Errors:** 400 invalid UUID; 401 unauthorized; 503 initial update/queue insertion failure; a missing document can fail during the final lookup.
 
-**Existing limitations preserved:** the service does not validate status transitions, HEAD-verify the MinIO object, verify file size/MIME/hash, or explicitly handle duplicate calls beyond reusing the job ID.
+**Existing limitations:** outside the deletion guards, the service does not fully validate status transitions, HEAD-verify the MinIO object, verify file size/MIME/hash, or explicitly handle duplicate calls beyond reusing the job ID. A missing/ineligible document returns 404; queue failures return 503 without overwriting permanent-deletion states.
 
 ## 4. Progress SSE
 

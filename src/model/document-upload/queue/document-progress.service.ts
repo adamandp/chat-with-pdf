@@ -23,18 +23,25 @@ export class DocumentsListener extends QueueEventsHost {
   @OnQueueEvent(DOCUMENT_QUEUE.DOCUMENTS.EVENTS.WAITING)
   onWaiting({ jobId }: { jobId: string }) {
     this.logger.info({ jobId }, 'Document job waiting');
-    this.documents.emitProgress(jobId, 'message', { document_id: jobId, status: 'QUEUED', progress: 0 });
+    this.documents.emitProgress(jobId, 'message', {
+      document_id: jobId,
+      status: 'QUEUED',
+      progress: 0,
+    });
   }
 
   @OnQueueEvent(DOCUMENT_QUEUE.DOCUMENTS.EVENTS.ACTIVE)
   onActive({ jobId }: { jobId: string }) {
     this.logger.info({ jobId }, 'Document job active');
-    this.documents.emitProgress(jobId, 'message', { document_id: jobId, status: 'PROCESSING', progress: 0 });
+    this.documents.emitProgress(jobId, 'message', {
+      document_id: jobId,
+      status: 'PROCESSING',
+      progress: 0,
+    });
   }
 
   @OnQueueEvent(DOCUMENT_QUEUE.DOCUMENTS.EVENTS.PROGRESS)
-  onProgress({ jobId, data }: { jobId: string;
-    data: unknown; }) {
+  onProgress({ jobId, data }: { jobId: string; data: unknown }) {
     this.logger.info(
       {
         jobId,
@@ -50,13 +57,7 @@ export class DocumentsListener extends QueueEventsHost {
   }
 
   @OnQueueEvent(DOCUMENT_QUEUE.DOCUMENTS.EVENTS.COMPLETED)
-  onCompleted({
-    jobId,
-    returnvalue,
-  }: {
-    jobId: string;
-    returnvalue: unknown;
-  }) {
+  onCompleted({ jobId, returnvalue }: { jobId: string; returnvalue: unknown }) {
     this.logger.info(
       {
         jobId,
@@ -64,7 +65,11 @@ export class DocumentsListener extends QueueEventsHost {
       },
       'Document job completed',
     );
-    this.documents.emitProgress(jobId, 'message', { document_id: jobId, status: 'READY', progress: 100 });
+    this.documents.emitProgress(jobId, 'message', {
+      document_id: jobId,
+      status: 'READY',
+      progress: 100,
+    });
   }
 
   @OnQueueEvent(DOCUMENT_QUEUE.DOCUMENTS.EVENTS.FAILED)
@@ -84,25 +89,29 @@ export class DocumentsListener extends QueueEventsHost {
     );
     try {
       await this.prisma.document.updateMany({
-        where: { id: jobId },
+        where: {
+          id: jobId,
+          deletedAt: null,
+          status: { in: [DocumentStatus.QUEUED, DocumentStatus.PROCESSING] },
+        },
         data: { status: DocumentStatus.FAILED, errorMessage: failedReason },
       });
     } catch (error) {
-      this.logger.error({ jobId, err: error }, 'Failed to persist document failure');
+      this.logger.error(
+        { jobId, err: error },
+        'Failed to persist document failure',
+      );
     }
     this.documents.emitProgress(jobId, 'message', {
-      document_id: jobId, status: 'FAILED', progress: 0, error: failedReason,
+      document_id: jobId,
+      status: 'FAILED',
+      progress: 0,
+      error: failedReason,
     });
   }
 
   @OnQueueEvent(DOCUMENT_QUEUE.DOCUMENTS.EVENTS.DELAYED)
-  onDelayed({
-    jobId,
-    delay,
-  }: {
-    jobId: string;
-    delay: number;
-  }) {
+  onDelayed({ jobId, delay }: { jobId: string; delay: number }) {
     this.logger.info(
       {
         jobId,

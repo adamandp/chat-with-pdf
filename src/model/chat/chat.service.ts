@@ -709,11 +709,6 @@ export class ChatService {
           'Only completed assistant messages can be regenerated',
         );
       }
-      if (session.activeLeafMessageId !== messageId) {
-        throw new ConflictException(
-          'Only the active assistant answer can be regenerated',
-        );
-      }
       const question = original.parentMessageId
         ? await tx.chatHistory.findFirst({
             where: {
@@ -790,7 +785,9 @@ export class ChatService {
         question: question.content,
         answerMode,
         mode: body.mode,
-        previousActiveLeafMessageId: messageId,
+        // On failure restore the branch that was active before regeneration,
+        // not necessarily the assistant selected for regeneration.
+        previousActiveLeafMessageId: session.activeLeafMessageId,
       };
     });
   }

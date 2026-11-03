@@ -64,13 +64,15 @@ export class DocumentUploadService {
     return new Observable<DocumentProgressEvent>((subscriber) => {
       let loading = true;
       const pending: DocumentProgressEvent[] = [];
-      const updates = this.progress$.pipe(
-        filter((item) => item.documentId === documentId),
-        map((item) => item.event),
-      ).subscribe((event) => {
-        if (loading) pending.push(event);
-        else subscriber.next(event);
-      });
+      const updates = this.progress$
+        .pipe(
+          filter((item) => item.documentId === documentId),
+          map((item) => item.event),
+        )
+        .subscribe((event) => {
+          if (loading) pending.push(event);
+          else subscriber.next(event);
+        });
       const heartbeat = setInterval(() => {
         if (!loading) subscriber.next({ type: 'heartbeat', data: {} });
       }, 15000);
@@ -81,21 +83,29 @@ export class DocumentUploadService {
           select: { status: true, errorMessage: true },
         }),
         this.queue.getJob(documentId),
-      ]).then(([snapshot, job]) => {
-        if (subscriber.closed) return;
-        subscriber.next({
-          type: 'message',
-          data: {
-            document_id: documentId,
-            status: snapshot.status,
-            progress: snapshot.status === DocumentStatus.READY ? 100
-              : typeof job?.progress === 'number' ? job.progress : 0,
-            ...(snapshot.errorMessage ? { error: snapshot.errorMessage } : {}),
-          },
-        });
-        loading = false;
-        for (const event of pending) subscriber.next(event);
-      }).catch((error: unknown) => subscriber.error(error));
+      ])
+        .then(([snapshot, job]) => {
+          if (subscriber.closed) return;
+          subscriber.next({
+            type: 'message',
+            data: {
+              document_id: documentId,
+              status: snapshot.status,
+              progress:
+                snapshot.status === DocumentStatus.READY
+                  ? 100
+                  : typeof job?.progress === 'number'
+                    ? job.progress
+                    : 0,
+              ...(snapshot.errorMessage
+                ? { error: snapshot.errorMessage }
+                : {}),
+            },
+          });
+          loading = false;
+          for (const event of pending) subscriber.next(event);
+        })
+        .catch((error: unknown) => subscriber.error(error));
 
       return () => {
         clearInterval(heartbeat);
@@ -151,12 +161,20 @@ export class DocumentUploadService {
     userId: string,
     id: string,
   ): Promise<WebResponse<DocumentProcessDTO>> {
-    try {
-      await this.prisma.document.updateMany({
-        where: { id, userId },
-        data: { status: DocumentStatus.QUEUED },
-      });
+    const documents = await this.prisma.document.updateManyAndReturn({
+      where: {
+        id,
+        userId,
+        deletedAt: null,
+        status: { notIn: [DocumentStatus.DELETING, DocumentStatus.DELETED] },
+      },
+      data: { status: DocumentStatus.QUEUED },
+    });
+    if (!documents.length) {
+      throw new NotFoundException(ErrorMessage.notFound('Active document'));
+    }
 
+    try {
       await this.queue.add(
         DOCUMENT_QUEUE.DOCUMENTS.NAME,
         { userId, documentId: id },
@@ -164,7 +182,7 @@ export class DocumentUploadService {
       );
     } catch {
       await this.prisma.document.updateMany({
-        where: { id, userId },
+        where: { id, userId, status: DocumentStatus.QUEUED },
         data: { status: DocumentStatus.FAILED },
       });
 

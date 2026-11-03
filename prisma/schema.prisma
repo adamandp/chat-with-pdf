@@ -84,6 +84,7 @@ model ChatSession {
   id                  String    @id @default(uuid()) @map("id") @db.Uuid
   userId              String    @map("user_id") @db.Uuid
   title               String?   @default("New Chat") @map("title") @db.VarChar(255)
+  isPinned            Boolean   @default(false) @map("is_pinned")
   answerMode          String?   @default("document_only") @map("answer_mode") @db.VarChar(30)
   activeLeafMessageId String?   @map("active_leaf_message_id") @db.Uuid
   lastMessageAt       DateTime? @map("last_message_at") @db.Timestamptz(6)
@@ -97,6 +98,7 @@ model ChatSession {
   sessionDocuments  SessionDocument[]
 
   @@index([userId, lastMessageAt])
+  @@index([userId, isPinned, updatedAt])
   @@index([activeLeafMessageId])
   @@map("chat_session")
 }

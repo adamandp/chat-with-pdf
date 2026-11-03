@@ -10,7 +10,7 @@ Authenticated chat detail, generation, fork, feedback, branching, and version-se
 | POST | `/chat/send` | Bearer access token | Generate RAG answer as SSE |
 | POST | `/chat/:id/fork` | Bearer access token | Copy the selected ancestor path into a new session |
 | POST | `/chat/:messageId/feedback` | Bearer access token | Toggle LIKE/DISLIKE on an assistant answer (204) |
-| POST | `/chat/:messageId/regenerate` | Bearer access token | Regenerate the active answer as a new version (SSE) |
+| POST | `/chat/:messageId/regenerate` | Bearer access token | Regenerate any completed assistant answer as a new branch (SSE) |
 | POST | `/chat/:messageId/edit` | Bearer access token | Edit a user question and branch the conversation (SSE) |
 | PATCH | `/chat/:messageId/activate` | Bearer access token | Restore the selected completed version's descendant branch |
 
@@ -283,11 +283,11 @@ Accept: text/event-stream
 | --- | --- | --- | --- |
 | `mode` | enum | Yes | `quick`, `pro`, `ultra` |
 
-Only the currently active, completed assistant answer may be regenerated. The original user question is reused; **no new user message is created**. The replacement assistant uses the original `parentMessageId` and `versionGroupId`, with a new message ID and completion record. History preceding the original question is reused. Document IDs come from the session's currently attached, owned, READY documents (per-message document selections were not persisted previously).
+Any completed assistant answer in a caller-owned active session can be regenerated, including the first/middle answer or a version on an inactive branch. The original user question is reused; **no new user message is created**. The new assistant is a sibling of the selected answer, sharing its `parentMessageId` and `versionGroupId`, with a new message ID and completion record. Only ancestors **preceding** that user question become RAG history; later messages and other branches remain stored and unchanged. The active leaf moves to the new answer. Document IDs come from the session's currently attached, owned, READY documents (per-message selections were not persisted previously). The generation `mode` comes from the request, as it is not stored on the message.
 
-SSE format is identical to `/chat/send`: `started`, `sources`, repeated `token`, then `done` or `error`. On failure/cancellation the active leaf is restored to the previous assistant version.
+SSE format is identical to `/chat/send`: `started`, `sources`, repeated `token`, then `done` or `error`. On failure/cancellation the active leaf is restored to whichever message was active **before** regeneration, even when the regenerated target was inactive. Clients should re-fetch chat details to obtain the active branch and version navigation metadata.
 
-**Errors before SSE:** 400 invalid mode or no ready PDF for document-only; 401 no auth; 404 foreign/deleted session or message; 409 wrong role/status, inactive target, or generation already running.
+**Errors before SSE:** 400 invalid mode or no ready PDF for document-only; 401 no auth; 404 foreign/deleted session or message; 409 wrong role/status, missing parent user question, or generation already running.
 
 ## 6. Edit User Message
 

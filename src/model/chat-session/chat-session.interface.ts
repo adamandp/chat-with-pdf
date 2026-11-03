@@ -9,7 +9,7 @@ export class BaseChatSessionDto
 
 export type ChatSessionSummaryDto = Pick<
   BaseChatSessionDto,
-  'id' | 'title' | 'updatedAt'
+  'id' | 'title' | 'isPinned' | 'updatedAt'
 >;
 
 export type FindAllChatSessionResDto = ChatSessionSummaryDto[];

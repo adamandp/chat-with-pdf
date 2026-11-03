@@ -75,7 +75,11 @@ export class DocumentsService {
   ): Promise<WebResponse<DocumentFindAllDeletedDTO>> {
     this.logger.trace({ userId, page, limit }, 'Finding deleted documents');
 
-    const where = { userId, deletedAt: { not: null } };
+    const where = {
+      userId,
+      status: DocumentStatus.READY,
+      deletedAt: { not: null },
+    };
 
     const [documents, totalItems] = await this.prisma.$transaction([
       this.prisma.document.findMany({
@@ -107,7 +111,12 @@ export class DocumentsService {
     id: string,
   ): Promise<WebResponse<DocumentFindOneDTO>> {
     const document = await this.prisma.document.findFirst({
-      where: { id, userId, deletedAt: null },
+      where: {
+        id,
+        userId,
+        deletedAt: null,
+        status: { notIn: [DocumentStatus.DELETING, DocumentStatus.DELETED] },
+      },
     });
 
     if (!document) throw new NotFoundException('Document not found');
@@ -163,7 +172,12 @@ export class DocumentsService {
     id: string,
   ): Promise<WebResponse<DocumentRestoreDTO>> {
     const documents = await this.prisma.document.updateManyAndReturn({
-      where: { id, userId, deletedAt: { not: null } },
+      where: {
+        id,
+        userId,
+        status: DocumentStatus.READY,
+        deletedAt: { not: null },
+      },
       data: { deletedAt: null },
     });
 
@@ -187,49 +201,96 @@ export class DocumentsService {
     userId: string,
     id: string,
   ): Promise<WebResponse<DocumentRemovePermanentlyDTO>> {
-    const result = await this.prisma.$transaction(async (tx) => {
-      const [document] = await tx.$queryRaw<{
-        id: string;
-        fileName: string | null;
-        updatedAt: Date | null;
-      }[]>`
-        SELECT id, filename AS "fileName", updated_at AS "updatedAt"
-        FROM documents
-        WHERE id = ${id}::uuid
-          AND user_id = ${userId}::uuid
-          AND deleted_at IS NOT NULL
-        FOR UPDATE
-      `;
+    // The conditional update is an atomic claim. A failed cleanup is immediately
+    // retryable; an interrupted cleanup may be reclaimed after its lease expires.
+    // External storage calls deliberately run outside a database transaction.
+    const staleLease = new Date(Date.now() - 30 * 60 * 1000);
+    const claimed = await this.prisma.document.updateManyAndReturn({
+      where: {
+        id,
+        userId,
+        deletedAt: { not: null },
+        OR: [
+          { status: DocumentStatus.READY },
+          { status: DocumentStatus.DELETING, errorMessage: { not: null } },
+          { status: DocumentStatus.DELETING, updatedAt: { lt: staleLease } },
+        ],
+      },
+      data: { status: DocumentStatus.DELETING, errorMessage: null },
+    });
 
-      if (!document) {
-        throw new NotFoundException(ErrorMessage.notFound('Deleted document'));
-      }
-
-      const relation = await tx.sessionDocument.findFirst({
-        where: { documentId: id },
-        select: { documentId: true },
+    if (!claimed.length) {
+      const existing = await this.prisma.document.findFirst({
+        where: { id, userId, deletedAt: { not: null } },
+        select: { status: true },
       });
-      if (relation) {
-        throw new ConflictException('Document is still linked to a chat session');
+      if (existing?.status === DocumentStatus.DELETING) {
+        throw new ConflictException('Document deletion already in progress');
       }
+      throw new NotFoundException(ErrorMessage.notFound('Deleted document'));
+    }
 
+    const document = claimed[0];
+    const lease = {
+      id,
+      userId,
+      status: DocumentStatus.DELETING,
+      updatedAt: document.updatedAt,
+    };
+
+    try {
       const vectorDeletion = await this.milvus.delete({
         collection_name: 'document_chunks',
         filter: `document_id == ${JSON.stringify(id)}`,
       });
       if (vectorDeletion.status?.error_code !== 'Success') {
-        throw new ServiceUnavailableException('Failed to delete document vectors');
+        throw new ServiceUnavailableException(
+          'Failed to delete document vectors',
+        );
       }
-      await this.storage.removeObject(this.storage.bucket, id);
-      await tx.document.delete({ where: { id, userId } });
 
-      return document;
-    }, { timeout: 30_000 });
+      try {
+        await this.storage.removeObject(this.storage.bucket, id);
+      } catch (error) {
+        // An absent object is already cleaned up, including on retries.
+        const code = (error as { code?: string })?.code;
+        if (code !== 'NoSuchKey' && code !== 'NotFound') throw error;
+      }
 
-    this.logger.info({ userId, documentId: id }, 'Document permanently deleted');
-    return {
-      message: Messages.delete('Document permanently'),
-      data: result,
-    };
+      const finished = await this.prisma.document.updateManyAndReturn({
+        where: lease,
+        data: { status: DocumentStatus.DELETED, errorMessage: null },
+      });
+      if (!finished.length) {
+        throw new ConflictException('Document deletion lease was lost');
+      }
+
+      this.logger.info(
+        { userId, documentId: id },
+        'Document permanently deleted',
+      );
+      return {
+        message: Messages.delete('Document permanently'),
+        data: {
+          id: finished[0].id,
+          fileName: finished[0].fileName,
+          updatedAt: finished[0].updatedAt,
+        },
+      };
+    } catch (error) {
+      await this.prisma.document.updateMany({
+        where: lease,
+        data: {
+          errorMessage:
+            error instanceof Error
+              ? error.message.slice(0, 2000)
+              : 'Document cleanup failed',
+        },
+      });
+      if (error instanceof ConflictException) throw error;
+      throw new ServiceUnavailableException(
+        'Document cleanup failed; retry permanent deletion',
+      );
+    }
   }
 }

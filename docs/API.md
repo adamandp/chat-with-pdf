@@ -73,7 +73,11 @@ List endpoints accept `?page=1&limit=10`. Both are integers from 1 through 100; 
 
 **Chat details:** `GET /chat/:id/details` returns session metadata, documents, active-branch messages, feedback, and version navigation metadata (moved from `GET /chat-sessions/:id`).
 
-**Chat branching and feedback:** `POST /chat/:id/fork`, `POST /chat/:messageId/feedback` (204), `POST /chat/:messageId/regenerate` (SSE), `POST /chat/:messageId/edit` (SSE), and `PATCH /chat/:messageId/activate`. See [Chat API](api/chat.md).
+**Chat branching and feedback:** `POST /chat/:id/fork`, `POST /chat/:messageId/feedback` (204), `POST /chat/:messageId/regenerate` (SSE, including older/inactive answers), `POST /chat/:messageId/edit` (SSE), and `PATCH /chat/:messageId/activate`. See [Chat API](api/chat.md).
+
+**Session pinning:** `PATCH /chat-sessions/:id` accepts `title` and/or `isPinned`. `GET /chat-sessions` lists pinned sessions first before pagination; Trash includes the pin flag without pinned-first sorting.
+
+**Permanent PDF deletion:** `DELETE /documents/:id/permanent` removes MinIO/Milvus data but preserves `Document` and chat associations. Cleanup progresses `READY` → `DELETING` → `DELETED`, with failed cleanup retryable. Permanently deleted documents disappear from Trash and cannot be downloaded or restored; chat details keep their metadata with `status: DELETED`.
 
 **SSE:** `POST /chat/send`, `POST /chat/:messageId/regenerate`, and `POST /chat/:messageId/edit` emit `started`, `sources`, `token`, `done`, `error`; use fetch streaming because native `EventSource` cannot POST. Document upload progress uses `GET` SSE events `message` and `heartbeat`.
 
