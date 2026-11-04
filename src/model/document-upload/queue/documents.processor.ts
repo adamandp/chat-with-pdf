@@ -1,7 +1,8 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { PinoLogger } from 'nestjs-pino';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { ConfigService } from '@nestjs/config';
 import { getDocument as loadPdf } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { DOCUMENT_QUEUE } from './documents.constants';
@@ -18,6 +19,11 @@ import { MilvusService } from '../../../common/milvus/milvus.service';
 import { DocumentStatus } from '../../../generated/prisma/enums';
 import { GeminiService } from '../../../common/ai/gemini.service';
 import { ConflictException } from '@nestjs/common';
+import {
+  assertPdfObject,
+  maxPdfBytes,
+  PDF_MIME_TYPE,
+} from '../document-upload.validation';
 
 @Processor(DOCUMENT_QUEUE.DOCUMENTS.NAME)
 export class DocumentsProcessor extends WorkerHost {
@@ -27,22 +33,60 @@ export class DocumentsProcessor extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly milvus: MilvusService,
     private readonly gemini: GeminiService,
+    private readonly config: ConfigService,
   ) {
     super();
     this.logger.setContext(DocumentsProcessor.name);
   }
 
-  private async getDocument(documentId: string): Promise<Uint8Array> {
+  private async getDocument(
+    documentId: string,
+    expectedSize: bigint | null,
+    expectedHash: string | null,
+  ): Promise<{ data: Uint8Array; fileSize: bigint; sha256Hash: string }> {
+    const limit = maxPdfBytes(this.config);
+    const object = await this.storage.statObject(
+      this.storage.bucket,
+      documentId,
+    );
+    assertPdfObject(object, limit, expectedSize);
+
     const stream = await this.storage.getObject(
       this.storage.bucket,
       documentId,
     );
 
     const buffers: Buffer[] = [];
+    const hash = createHash('sha256');
+    let size = 0;
 
-    for await (const part of stream) buffers.push(Buffer.from(part));
+    for await (const part of stream) {
+      const buffer = Buffer.from(part);
+      size += buffer.length;
+      if (size > limit) {
+        stream.destroy();
+        throw new Error(`PDF exceeds ${limit} byte upload limit`);
+      }
+      hash.update(buffer);
+      buffers.push(buffer);
+    }
 
-    return new Uint8Array(Buffer.concat(buffers));
+    const data = Buffer.concat(buffers, size);
+    if (!size || data.subarray(0, 5).toString('ascii') !== '%PDF-') {
+      throw new Error('Invalid PDF file signature');
+    }
+    if (
+      size !== object.size ||
+      (expectedSize != null && BigInt(size) !== expectedSize)
+    ) {
+      throw new Error('PDF size changed during upload verification');
+    }
+    const sha256Hash = hash.digest('hex');
+    if (expectedHash && sha256Hash !== expectedHash.toLowerCase()) {
+      throw new Error('PDF SHA-256 checksum mismatch');
+    }
+
+    return { data: new Uint8Array(data), fileSize: BigInt(size), sha256Hash };
   }
 
   private async extractDocument(data: Uint8Array): Promise<PdfExtraction> {
@@ -181,6 +225,8 @@ export class DocumentsProcessor extends WorkerHost {
     documentId: string,
     pageCount: number,
     chunkCount: number,
+    fileSize: bigint,
+    sha256Hash: string,
   ) {
     const result = await this.prisma.document.updateMany({
       where: {
@@ -191,6 +237,9 @@ export class DocumentsProcessor extends WorkerHost {
       data: {
         pageCount,
         chunkCount,
+        fileSize,
+        mimeType: PDF_MIME_TYPE,
+        sha256Hash,
         status: DocumentStatus.READY,
         errorMessage: null,
       },
@@ -227,7 +276,11 @@ export class DocumentsProcessor extends WorkerHost {
 
     await job.updateProgress(5);
 
-    const data = await this.getDocument(documentId);
+    const { data, fileSize, sha256Hash } = await this.getDocument(
+      documentId,
+      document.fileSize,
+      document.sha256Hash,
+    );
 
     await job.updateProgress(15);
 
@@ -251,7 +304,13 @@ export class DocumentsProcessor extends WorkerHost {
 
     await job.updateProgress(95);
 
-    await this.saveMetadata(documentId, extracted.pageCount, embedded.length);
+    await this.saveMetadata(
+      documentId,
+      extracted.pageCount,
+      embedded.length,
+      fileSize,
+      sha256Hash,
+    );
 
     await job.updateProgress(100);
 

@@ -32,7 +32,7 @@ describe('document queue progress', () => {
       warn: vi.fn(),
     };
     const queue = { getJob: vi.fn().mockResolvedValue({ progress }) };
-    const service = new DocumentUploadService(logger, prisma, {}, queue);
+    const service = new DocumentUploadService(logger, prisma, {}, queue, {});
     const listener = new DocumentsListener(logger, service, prisma);
     return { prisma, logger, queue, service, listener };
   }
