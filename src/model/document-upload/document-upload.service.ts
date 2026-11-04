@@ -1,8 +1,10 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { Messages, ErrorMessage } from '../../utils/message.helper';
 import { StorageService } from '../../common/storage/storage.service';
@@ -21,6 +23,11 @@ import { Queue } from 'bullmq';
 import { PinoLogger } from 'nestjs-pino';
 import { DOCUMENT_QUEUE } from './queue/documents.constants';
 import { Observable, Subject, filter, map, takeWhile } from 'rxjs';
+import {
+  assertPdfObject,
+  isMissingObject,
+  maxPdfBytes,
+} from './document-upload.validation';
 
 @Injectable()
 export class DocumentUploadService {
@@ -30,6 +37,7 @@ export class DocumentUploadService {
     private readonly storage: StorageService,
     @InjectQueue(DOCUMENT_QUEUE.DOCUMENTS.NAME)
     readonly queue: Queue<ProcessDocumentType>,
+    private readonly config: ConfigService,
   ) {
     this.logger.setContext(DocumentUploadService.name);
   }
@@ -127,11 +135,18 @@ export class DocumentUploadService {
     body: CreatePresignUrlDTO,
   ): Promise<WebResponse<PresignUrlDTO>> {
     const expired_url = 900;
+    const limit = maxPdfBytes(this.config);
+    if (body.fileSize != null && body.fileSize > limit) {
+      throw new BadRequestException(`PDF exceeds ${limit} byte upload limit`);
+    }
 
     const document = await this.prisma.document.create({
       data: {
         userId,
         fileName: body.fileName,
+        fileSize: body.fileSize == null ? null : BigInt(body.fileSize),
+        mimeType: body.mimeType ?? null,
+        sha256Hash: body.sha256Hash?.toLowerCase() ?? null,
         status: DocumentStatus.PENDING_UPLOAD,
       },
     });
@@ -161,6 +176,30 @@ export class DocumentUploadService {
     userId: string,
     id: string,
   ): Promise<WebResponse<DocumentProcessDTO>> {
+    // Do not inspect a storage object until ownership and deletion guards pass.
+    const existing = await this.prisma.document.findFirst({
+      where: {
+        id,
+        userId,
+        deletedAt: null,
+        status: { notIn: [DocumentStatus.DELETING, DocumentStatus.DELETED] },
+      },
+      select: { fileSize: true },
+    });
+    if (!existing) {
+      throw new NotFoundException(ErrorMessage.notFound('Active document'));
+    }
+
+    try {
+      const object = await this.storage.statObject(this.storage.bucket, id);
+      assertPdfObject(object, maxPdfBytes(this.config), existing.fileSize);
+    } catch (error) {
+      if (isMissingObject(error)) {
+        throw new BadRequestException('PDF has not been uploaded to storage');
+      }
+      throw error;
+    }
+
     const documents = await this.prisma.document.updateManyAndReturn({
       where: {
         id,

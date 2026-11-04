@@ -23,24 +23,26 @@ describe('PDF processing lifecycle guards', () => {
   it('never enqueues permanently deleted or trashed documents', async () => {
     const prisma = {
       document: {
+        findFirst: vi.fn().mockResolvedValue(null),
         updateManyAndReturn: vi.fn().mockResolvedValue([]),
         updateMany: vi.fn(),
       },
     };
     const queue = { add: vi.fn() };
-    const service = new DocumentUploadService(logger, prisma, {}, queue);
+    const service = new DocumentUploadService(logger, prisma, {}, queue, {});
     await expect(
       service.documentProcess('owner', 'deleted-doc'),
     ).rejects.toMatchObject({ status: 404 });
-    expect(prisma.document.updateManyAndReturn).toHaveBeenCalledWith({
+    expect(prisma.document.findFirst).toHaveBeenCalledWith({
       where: {
         id: 'deleted-doc',
         userId: 'owner',
         deletedAt: null,
         status: { notIn: ['DELETING', 'DELETED'] },
       },
-      data: { status: 'QUEUED' },
+      select: { fileSize: true },
     });
+    expect(prisma.document.updateManyAndReturn).not.toHaveBeenCalled();
     expect(queue.add).not.toHaveBeenCalled();
   });
 
@@ -55,6 +57,7 @@ describe('PDF processing lifecycle guards', () => {
       storage,
       prisma,
       milvus,
+      {},
       {},
     );
     const job = {
