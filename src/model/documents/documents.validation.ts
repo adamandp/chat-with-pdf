@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DocumentStatus } from '../../generated/prisma/enums';
+import { BaseQuerySchema } from '../../common/common.dto';
 
 export const documentSchema = z.object({
   id: z.uuid(),
@@ -20,3 +21,6 @@ export const documentSchema = z.object({
   deletedAt: z.date().nullable(),
 });
 
+export const DocumentQuerySchema = BaseQuerySchema.extend({
+  sort: z.enum(['modified', 'name', 'pages']).optional().default('modified'),
+});

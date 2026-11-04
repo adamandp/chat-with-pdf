@@ -130,9 +130,18 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
 
-# PDF upload and chat
+# Chat With PDF API
 
-The document pipeline and single `POST /chat` endpoint run directly in NestJS.
-See [setup and frontend flow](docs/005-document-pipeline.md) and the
-[OpenAPI contract](docs/document-api.yaml). Starting the application also starts
-PDF processing in the same Nest process; no separate worker command is needed.
+The current NestJS HTTP/SSE contracts live in [docs/API.md](docs/API.md) and the
+[module reference](docs/api/README.md). These documents cover authentication,
+chat sessions, chat streaming and branching, PDF upload, document management,
+and health checks.
+
+PDF upload flow: `POST /document-upload/presigned-url` → signed MinIO `PUT` →
+`POST /document-upload/:id/process` → `GET /document-upload/:id/progress` (SSE).
+Chat generation uses `POST /chat/send` (SSE). See the
+[current upload contract](docs/api/document-upload.md) and
+[current chat contract](docs/api/chat.md) for request and response fields.
+
+Background document processing starts with NestJS through BullMQ; no separate
+worker command is required.

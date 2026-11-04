@@ -14,6 +14,7 @@ export const userSchema = z.object({
     .nullable(),
   name: z.string().max(255).nullable(),
   passwordHash: z.string().nullable(),
+  accountType: z.enum(['GUEST', 'REGISTERED']),
   role: z.string().max(20),
   isActive: z.boolean(),
 

@@ -17,6 +17,7 @@ import { Messages, ErrorMessage } from '../../utils/message.helper';
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDTO } from './dto/register.dto.js';
 import { SessionService } from '../session/session.service.js';
+import type { JwtPayload } from '../session/session.interface.js';
 import { GetProfileDTO } from './dto/get-profile.dto.js';
 import { LoginRateLimitService } from './login-rate-limit.service.js';
 
@@ -82,18 +83,62 @@ export class AuthService {
     }
   }
 
-  private async assertNotAlreadyAuthenticated(
+  private async currentSession(
     request: CookieRequest,
-  ): Promise<void> {
-    if (!request.cookies.refreshToken) return;
+  ): Promise<JwtPayload | null> {
+    if (!request.cookies?.refreshToken) return null;
 
     try {
-      await this.session.validateToken(request.cookies.refreshToken, 'refresh');
-    } catch {
-      return;
+      return await this.session.validateToken(request.cookies.refreshToken, 'refresh');
+    } catch (error) {
+      if (error instanceof UnauthorizedException) return null;
+      throw error;
+    }
+  }
+
+  private async assertNotRegistered(
+    request: CookieRequest,
+  ): Promise<JwtPayload | null> {
+    const session = await this.currentSession(request);
+    if (!session) return null;
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: session.sub },
+      select: { accountType: true },
+    });
+    if (user?.accountType !== 'GUEST') {
+      throw new BadRequestException(ErrorMessage.alreadyLoggedIn);
+    }
+    return session;
+  }
+
+  async createGuest(
+    request: CookieRequest,
+  ): Promise<WebResponse<LoginResultDTO>> {
+    // Repeated calls with a valid cookie must never create another guest.
+    const existing = await this.currentSession(request);
+    if (existing) {
+      const refreshed = await this.session.refreshAccessToken(request);
+      return {
+        message: Messages.get('Login session'),
+        data: { accessToken: refreshed.data!.accessToken },
+      };
     }
 
-    throw new BadRequestException(ErrorMessage.alreadyLoggedIn);
+    await this.loginRateLimit.consumeGuest(request);
+    const user = await this.prisma.user.create({
+      data: { accountType: 'GUEST' },
+    });
+    try {
+      const tokens = await this.session.createToken({ payload: { sub: user.id } });
+      return { message: Messages.create('Guest session'), data: tokens };
+    } catch (error) {
+      // A failed token issuance must not leave an unused guest user behind.
+      await this.prisma.user.delete({ where: { id: user.id } }).catch((cleanupError) => {
+        this.logger.error(cleanupError);
+      });
+      throw error;
+    }
   }
 
   async logout(request: CookieRequest): Promise<WebResponse> {
@@ -112,7 +157,7 @@ export class AuthService {
     data: LoginDto,
     request: CookieRequest,
   ): Promise<WebResponse<LoginResultDTO>> {
-    await this.assertNotAlreadyAuthenticated(request);
+    const guest = await this.assertNotRegistered(request);
     await this.loginRateLimit.consume(request, data.username);
     const user = await this.validateUsername(data.username);
     await this.validatePassword(data.password, user.passwordHash);
@@ -121,6 +166,13 @@ export class AuthService {
         sub: user.id,
       },
     });
+
+    // Signing into an existing account switches identity, without merging data.
+    if (guest) {
+      await this.session.revokeCurrent(request).catch((error) => {
+        if (!(error instanceof UnauthorizedException)) throw error;
+      });
+    }
 
     return {
       message: Messages.create('Login session'),
@@ -135,7 +187,7 @@ export class AuthService {
     data: RegisterDTO,
     request: CookieRequest,
   ): Promise<WebResponse> {
-    await this.assertNotAlreadyAuthenticated(request);
+    const guest = await this.assertNotRegistered(request);
     await this.assertUsernameNotTaken(data.username);
 
     const passwordHash = await bcrypt.hash(data.password, 10).catch((error) => {
@@ -144,13 +196,41 @@ export class AuthService {
     });
 
     try {
-      await this.prisma.user.create({
-        data: {
-          username: data.username,
-          passwordHash,
-          name: data.name,
-        },
-      });
+      if (guest) {
+        // Preserve User.id and therefore every ChatSession/Document relation.
+        await this.prisma.$transaction(async (tx) => {
+          const updated = await tx.user.updateMany({
+            where: {
+              id: guest.sub,
+              accountType: 'GUEST',
+              isActive: true,
+              deletedAt: null,
+            },
+            data: {
+              username: data.username,
+              passwordHash,
+              name: data.name,
+              accountType: 'REGISTERED',
+            },
+          });
+          if (updated.count !== 1) {
+            throw new BadRequestException('Guest account is no longer available');
+          }
+          // Register + subsequent login must use a newly issued session.
+          await tx.authSession.updateMany({
+            where: { userId: guest.sub, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
+        });
+      } else {
+        await this.prisma.user.create({
+          data: {
+            username: data.username,
+            passwordHash,
+            name: data.name,
+          },
+        });
+      }
     } catch (error) {
       if (
         error &&
@@ -173,15 +253,16 @@ export class AuthService {
   ): Promise<WebResponse<GetProfileResDTO>> {
     const user = await this.prisma.user.findUnique({
       where: { id: data.id },
-      select: { id: true, username: true, name: true },
+      select: { id: true, username: true, name: true, accountType: true },
     });
 
     return {
       message: Messages.get('User profile'),
       data: {
         id: user?.id,
-        username: user?.username ?? undefined,
+        username: user?.username,
         name: user?.name,
+        accountType: user?.accountType,
       },
     };
   }

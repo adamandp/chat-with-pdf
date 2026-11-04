@@ -23,11 +23,18 @@ export class ChatSessionService {
 
   async findAll(
     userId: string,
-    { page, limit }: BaseQueryDto,
+    { page, limit, q, order = 'desc' }: BaseQueryDto,
   ): Promise<WebResponse<FindAllChatSessionResDto>> {
-    this.logger.trace({ userId, page, limit }, 'Finding active chat sessions');
+    this.logger.trace({ userId, page, limit, q, order }, 'Finding active chat sessions');
 
-    const where = { userId, deletedAt: null };
+    const search = q?.trim();
+    const where = {
+      userId,
+      deletedAt: null,
+      ...(search
+        ? { title: { contains: search, mode: 'insensitive' as const } }
+        : {}),
+    };
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.chatSession.findMany({
@@ -35,9 +42,9 @@ export class ChatSessionService {
         select: { id: true, title: true, isPinned: true, updatedAt: true },
         orderBy: [
           { isPinned: 'desc' },
-          { lastMessageAt: { sort: 'desc', nulls: 'last' } },
-          { updatedAt: 'desc' },
-          { id: 'desc' },
+          { lastMessageAt: { sort: order, nulls: 'last' } },
+          { updatedAt: order },
+          { id: order },
         ],
         skip: (page - 1) * limit,
         take: limit,
@@ -59,17 +66,24 @@ export class ChatSessionService {
 
   async findDeleted(
     userId: string,
-    { page, limit }: BaseQueryDto,
+    { page, limit, q, order = 'desc' }: BaseQueryDto,
   ): Promise<WebResponse<FindAllChatSessionResDto>> {
-    this.logger.trace({ userId, page, limit }, 'Finding deleted chat sessions');
+    this.logger.trace({ userId, page, limit, q, order }, 'Finding deleted chat sessions');
 
-    const where = { userId, deletedAt: { not: null } };
+    const search = q?.trim();
+    const where = {
+      userId,
+      deletedAt: { not: null },
+      ...(search
+        ? { title: { contains: search, mode: 'insensitive' as const } }
+        : {}),
+    };
 
     const [data, totalItems] = await this.prisma.$transaction([
       this.prisma.chatSession.findMany({
         where,
         select: { id: true, title: true, isPinned: true, updatedAt: true },
-        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        orderBy: [{ updatedAt: order }, { id: order }],
         skip: (page - 1) * limit,
         take: limit,
       }),

@@ -327,5 +327,4 @@ No request body. The message must be a completed version in a caller-owned, non-
 ## Known issues / missing capabilities
 
 - Existing sessions may have linked documents that were later deleted; regenerate searches only currently attached, READY, owned documents.
-- Existing `docs/chat.md` and `docs/chat.openapi.json` describe a superseded `POST /chat` endpoint with snake_case inputs. They do not match this controller.
 - Resume-after-disconnect for an interrupted SSE stream is not implemented.

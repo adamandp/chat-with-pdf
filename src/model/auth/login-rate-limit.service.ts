@@ -5,6 +5,7 @@ import { PrismaService } from '../../common/prisma/prisma.service.js';
 
 const MAX_REQUESTS_PER_IP = 30;
 const MAX_REQUESTS_PER_USERNAME = 10;
+const MAX_GUESTS_PER_IP = 10;
 const WINDOW_MS = 15 * 60 * 1000;
 
 export class LoginRateLimitException extends HttpException {
@@ -16,11 +17,17 @@ export class LoginRateLimitException extends HttpException {
   }
 }
 
+export class GuestRateLimitException extends HttpException {
+  constructor(public readonly retryAfter: number) {
+    super('Too many guest sessions. Try again later.', HttpStatus.TOO_MANY_REQUESTS);
+  }
+}
+
 @Injectable()
 export class LoginRateLimitService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private key(scope: 'ip' | 'username', value: string): string {
+  private key(scope: 'ip' | 'username' | 'guest-ip', value: string): string {
     return createHash('sha256').update(`${scope}:${value}`).digest('hex');
   }
 
@@ -69,5 +76,11 @@ export class LoginRateLimitService {
     if (ipWait || usernameWait) {
       throw new LoginRateLimitException(Math.max(ipWait, usernameWait));
     }
+  }
+
+  async consumeGuest(request: Request): Promise<void> {
+    const address = request.ip || request.socket?.remoteAddress || 'unknown';
+    const wait = await this.consumeBucket(this.key('guest-ip', address), MAX_GUESTS_PER_IP);
+    if (wait) throw new GuestRateLimitException(wait);
   }
 }

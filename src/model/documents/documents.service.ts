@@ -11,7 +11,8 @@ import { MilvusService } from '../../common/milvus/milvus.service';
 import { DocumentStatus } from '../../generated/prisma/enums';
 import { Messages, ErrorMessage } from '../../utils/message.helper';
 import type { WebResponse } from '../../common/common.interface';
-import type { BaseQueryDto } from '../../common/common.dto';
+import type { Prisma } from '../../generated/prisma/client';
+import type { DocumentQueryDto } from './dto/document-query.dto';
 import type {
   DocumentFindAllDTO,
   DocumentFindAllDeletedDTO,
@@ -34,20 +35,24 @@ export class DocumentsService {
 
   async findAll(
     userId: string,
-    { page, limit }: BaseQueryDto,
+    { page, limit, q, order = 'desc', sort = 'modified' }: DocumentQueryDto,
   ): Promise<WebResponse<DocumentFindAllDTO>> {
-    this.logger.trace({ userId, page, limit }, 'Finding ready documents');
+    this.logger.trace({ userId, page, limit, q, order, sort }, 'Finding ready documents');
 
+    const search = q?.trim();
     const where = {
       userId,
       status: DocumentStatus.READY,
       deletedAt: null,
+      ...(search
+        ? { fileName: { contains: search, mode: 'insensitive' as const } }
+        : {}),
     };
 
     const [documents, totalItems] = await this.prisma.$transaction([
       this.prisma.document.findMany({
         where,
-        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        orderBy: this.getDocumentOrderBy(sort, order),
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -71,20 +76,24 @@ export class DocumentsService {
 
   async findDeleted(
     userId: string,
-    { page, limit }: BaseQueryDto,
+    { page, limit, q, order = 'desc', sort = 'modified' }: DocumentQueryDto,
   ): Promise<WebResponse<DocumentFindAllDeletedDTO>> {
-    this.logger.trace({ userId, page, limit }, 'Finding deleted documents');
+    this.logger.trace({ userId, page, limit, q, order, sort }, 'Finding deleted documents');
 
+    const search = q?.trim();
     const where = {
       userId,
       status: DocumentStatus.READY,
       deletedAt: { not: null },
+      ...(search
+        ? { fileName: { contains: search, mode: 'insensitive' as const } }
+        : {}),
     };
 
     const [documents, totalItems] = await this.prisma.$transaction([
       this.prisma.document.findMany({
         where,
-        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+        orderBy: this.getDocumentOrderBy(sort, order),
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -104,6 +113,20 @@ export class DocumentsService {
         totalPages: Math.ceil(totalItems / limit),
       },
     };
+  }
+
+  private getDocumentOrderBy(
+    sort: DocumentQueryDto['sort'],
+    order: DocumentQueryDto['order'],
+  ): Prisma.DocumentOrderByWithRelationInput[] {
+    switch (sort) {
+      case 'name':
+        return [{ fileName: { sort: order, nulls: 'last' } }, { id: order }];
+      case 'pages':
+        return [{ pageCount: { sort: order, nulls: 'last' } }, { id: order }];
+      default:
+        return [{ updatedAt: order }, { id: order }];
+    }
   }
 
   async findOne(

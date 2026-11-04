@@ -26,6 +26,8 @@ Seven endpoints for managing conversation sessions. Every endpoint requires `Aut
 | --- | --- | --- | --- | --- |
 | `page` | Query | integer | No | 1–100; default 1 |
 | `limit` | Query | integer | No | 1–100; default 10 |
+| `q` | Query | string | No | Trimmed, up to 255 chars; case-insensitive title substring search |
+| `order` | Query | `asc` / `desc` | No | Sort direction; default `desc` |
 
 ```http
 GET /chat-sessions?page=1&limit=10
@@ -61,7 +63,7 @@ Authorization: Bearer <access-jwt>
 | 400 | Invalid pagination |
 | 401 | Invalid or missing access JWT |
 
-**Notes:** only `deletedAt: null` rows owned by the caller are included. The query sorts by `isPinned DESC`, then `lastMessageAt DESC NULLS LAST`, `updatedAt DESC`, and `id DESC`, **before pagination**. Pinned sessions appear first even across multiple pages; sessions without messages sort by their update time after sessions with messages.
+**Notes:** only `deletedAt: null` rows owned by the caller are included. Optional `q` filters titles case-insensitively. Ordering is `isPinned DESC` (always), then `lastMessageAt {order} NULLS LAST`, `updatedAt {order}`, `id {order}` **before pagination**. By default `order=desc`. Pinned sessions remain first on every page. The same search filter is used for the total count.
 
 ## 2. List Deleted Chat Sessions
 
@@ -75,6 +77,8 @@ Authorization: Bearer <access-jwt>
 | --- | --- | --- | --- | --- |
 | `page` | Query | integer | No | 1–100; default 1 |
 | `limit` | Query | integer | No | 1–100; default 10 |
+| `q` | Query | string | No | Trimmed, up to 255 chars; case-insensitive title substring search |
+| `order` | Query | `asc` / `desc` | No | Sort direction; default `desc` |
 
 ```http
 GET /chat-sessions/deleted?page=1&limit=10
@@ -110,7 +114,7 @@ Authorization: Bearer <access-jwt>
 | 400 | Invalid pagination |
 | 401 | Unauthorized |
 
-**Note:** only owned sessions where `deletedAt` is not null appear. `isPinned` is included, but Trash does not use pinned-first sorting.
+**Note:** only owned sessions where `deletedAt` is not null appear. Optional `q` filters titles case-insensitively and `order` sets the direction of `updatedAt`, then `id` (default `desc`). `isPinned` is returned but Trash does not use pinned-first sorting. `totalItems` counts only matching deleted sessions.
 
 ## 3. List Chat Messages (Legacy)
 
@@ -334,4 +338,4 @@ List, update, soft delete, permanent delete and restore return **only** the foll
 ## Known issues and missing endpoints
 
 - Message listing fetches all branch histories rather than the active branch and does not paginate.
-- Chat session controllers do not offer search or session-document list/attach/detach. Pin/unpin is supported through session update; fork, regenerate, edit, feedback and version activation live under `/chat` (see [Chat](chat.md)).
+- Chat session controllers do not offer session-document list/attach/detach. Pin/unpin is supported through session update; fork, regenerate, edit, feedback and version activation live under `/chat` (see [Chat](chat.md)).

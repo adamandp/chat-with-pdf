@@ -103,4 +103,72 @@ describe('ChatSession pin/unpin', () => {
       service.update('other-user', 'session', { isPinned: true }),
     ).rejects.toMatchObject({ status: 404 });
   });
+
+  it('searches active session titles case-insensitively and sorts within pinned groups', async () => {
+    const { service, prisma } = setup();
+    const result = await service.findAll('owner', {
+      page: 2,
+      limit: 3,
+      q: '  FinAnCe  ',
+      order: 'asc',
+    });
+    const where = {
+      userId: 'owner',
+      deletedAt: null,
+      title: { contains: 'FinAnCe', mode: 'insensitive' },
+    };
+    expect(prisma.chatSession.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where,
+        orderBy: [
+          { isPinned: 'desc' },
+          { lastMessageAt: { sort: 'asc', nulls: 'last' } },
+          { updatedAt: 'asc' },
+          { id: 'asc' },
+        ],
+        skip: 3,
+        take: 3,
+      }),
+    );
+    expect(prisma.chatSession.count).toHaveBeenCalledWith({ where });
+    expect(result.paging).toMatchObject({ currentPage: 2, pageSize: 3 });
+  });
+
+  it('searches deleted session titles and sorts Trash without pin priority', async () => {
+    const { service, prisma } = setup();
+    await service.findDeleted('owner', {
+      page: 1,
+      limit: 10,
+      q: 'report',
+      order: 'asc',
+    });
+    const where = {
+      userId: 'owner',
+      deletedAt: { not: null },
+      title: { contains: 'report', mode: 'insensitive' },
+    };
+    expect(prisma.chatSession.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where,
+        orderBy: [{ updatedAt: 'asc' }, { id: 'asc' }],
+      }),
+    );
+    expect(prisma.chatSession.count).toHaveBeenCalledWith({ where });
+  });
+
+  it('ignores whitespace-only search and preserves default ordering', async () => {
+    const { service, prisma } = setup();
+    await service.findAll('owner', { page: 1, limit: 10, q: '   ' });
+    expect(prisma.chatSession.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 'owner', deletedAt: null },
+        orderBy: [
+          { isPinned: 'desc' },
+          { lastMessageAt: { sort: 'desc', nulls: 'last' } },
+          { updatedAt: 'desc' },
+          { id: 'desc' },
+        ],
+      }),
+    );
+  });
 });
