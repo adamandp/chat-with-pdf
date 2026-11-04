@@ -1,12 +1,13 @@
 # Authentication API Reference
 
-Account creation, login, profile, token refresh and session termination. Status codes and messages reflect the current controllers and the service-level response templates.
+Lazy guest sessions, account creation/upgrades, login, profile, token refresh and session termination. Status codes and messages reflect the current controllers and the service-level response templates.
 
 ## Endpoint index
 
 | Method | Endpoint | Authentication | Description |
 | --- | --- | --- | --- |
 | POST | `/auth/register` | Public | Create account |
+| POST | `/auth/guest` | Public | Create a guest only when no valid session exists |
 | POST | `/auth/login` | Public | Login; receive access JWT and refresh cookie |
 | GET | `/auth/profile` | Bearer | Current user profile |
 | POST | `/session/refresh` | Refresh cookie | Renew access JWT |
@@ -17,11 +18,11 @@ Account creation, login, profile, token refresh and session termination. Status 
 
 **POST /auth/register**
 
-Creates an account **without** automatically logging in.
+Creates an account **without** automatically logging in. When a valid guest refresh cookie is sent, this upgrades that same `User.id` instead of creating a new user. Its chat sessions and documents retain ownership. Guest sessions are revoked; the client then logs in through the normal endpoint.
 
 ### Request
 
-**Headers:** `Content-Type: application/json`. **Cookie:** not required (a *valid* existing refresh cookie causes 400). **Body:**
+**Headers:** `Content-Type: application/json`. **Cookie:** optional (a valid guest cookie permits upgrade; a registered user's valid cookie causes 400). **Body:**
 
 | Field | Type | Required | Validation |
 | --- | --- | --- | --- |
@@ -39,7 +40,7 @@ Creates an account **without** automatically logging in.
 
 ### Success response — 201 Created
 
-No response cookies.
+No new session cookie. A guest upgrade clears its old refresh cookie.
 
 ```json
 {
@@ -51,9 +52,35 @@ No response cookies.
 
 | Status | Condition |
 | --- | --- |
-| 400 | Invalid request, username already registered, or already authenticated by refresh cookie |
+| 400 | Invalid request, username already registered, or already authenticated as a registered account |
 
-## 2. Login
+## 2. Create Guest Session
+
+**POST /auth/guest**
+
+Call lazily before the first chat send or PDF upload, never merely to render `/`. No request body is required. If a valid refresh cookie already exists, the endpoint returns an access token for that session without creating a new user.
+
+### Success response — 200 OK
+
+For a new guest, the response sets the same HttpOnly `refreshToken` cookie as login:
+
+```json
+{
+  "message": "🎉 Guest session created successfully! Welcome aboard! 🚀",
+  "data": { "accessToken": "<jwt>" }
+}
+```
+
+The new user has a standard UUID, nullable credentials, and `accountType: "GUEST"`. It receives the same 15-minute access/7-day refresh tokens and `AuthSession` checks as registered accounts. A repeated call with a valid cookie does not rotate that cookie. The endpoint checks trusted cookie origins and limits new guests to 10 creations per IP per 15 minutes (429 with `Retry-After`).
+
+### Errors
+
+| Status | Condition |
+| --- | --- |
+| 403 | Untrusted browser Origin |
+| 429 | Guest creation rate limit reached |
+
+## 3. Login
 
 **POST /auth/login**
 
@@ -61,7 +88,7 @@ Validates credentials and creates a database-backed authentication session.
 
 ### Request
 
-**Headers:** `Content-Type: application/json`. **Cookie:** not required (valid existing refresh cookie is rejected).
+**Headers:** `Content-Type: application/json`. **Cookie:** optional. A guest may log into an existing account; its old guest session is revoked, but guest data is not silently imported into that separate account.
 
 | Field | Type | Required | Validation |
 | --- | --- | --- | --- |
@@ -96,7 +123,7 @@ Set-Cookie: refreshToken=<refresh-jwt>; HttpOnly; SameSite=Lax; Path=/; Expires=
 
 | Status | Condition |
 | --- | --- |
-| 400 | Invalid body or already logged in with a valid refresh cookie |
+| 400 | Invalid body or already logged in with a registered account refresh cookie |
 | 401 | Invalid username/password, inactive account, or soft-deleted account |
 | 429 | More than 30 login requests per IP or 10 per username within 15 minutes (`Retry-After` header) |
 
@@ -108,7 +135,7 @@ Set-Cookie: refreshToken=<refresh-jwt>; HttpOnly; SameSite=Lax; Path=/; Expires=
 - Login limits use atomic PostgreSQL counters for both IP and normalized username. All attempts count, whether credentials are valid or not.
 - Deploy migration `20261103000000_restore_auth_login_rate_limit` first (`npx prisma migrate deploy`); the login rate limiter requires this table.
 
-## 3. Get Profile
+## 4. Get Profile
 
 **GET /auth/profile**
 
@@ -124,7 +151,8 @@ Set-Cookie: refreshToken=<refresh-jwt>; HttpOnly; SameSite=Lax; Path=/; Expires=
   "data": {
     "id": "6b79dddc-4fbe-438b-b3dc-f51a0e4a68f6",
     "username": "adamandp",
-    "name": "Adam Ananda Putra"
+    "name": "Adam Ananda Putra",
+    "accountType": "REGISTERED"
   }
 }
 ```
@@ -135,9 +163,9 @@ Set-Cookie: refreshToken=<refresh-jwt>; HttpOnly; SameSite=Lax; Path=/; Expires=
 | --- | --- |
 | 401 | Missing, expired, invalid, or rejected access token |
 
-**Note:** `name` can be null; the service uses optional chaining for user fields.
+**Note:** `name` and `username` can be null for guests; the profile includes `accountType: "GUEST" | "REGISTERED"`.
 
-## 4. Refresh Access Token
+## 5. Refresh Access Token
 
 **POST /session/refresh**
 
@@ -172,7 +200,7 @@ Cookie: refreshToken=<refresh-jwt>
 
 **Security:** the refresh token must match the stored hash for its active session.
 
-## 5. Logout
+## 6. Logout
 
 **POST /auth/logout**
 
@@ -210,7 +238,7 @@ Set-Cookie: refreshToken=; Expires=<past-date>; Path=/
 
 Only the session matching the refresh token's `sid` is revoked. The browser cookie is also cleared if the token is missing, expired, or already revoked (the HTTP response remains 401).
 
-## 6. Logout All Devices
+## 7. Logout All Devices
 
 **POST /auth/logout-all**
 

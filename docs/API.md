@@ -6,13 +6,13 @@
 
 | Module | Count | Documentation |
 | --- | ---: | --- |
-| Authentication & token sessions | 6 | [authentication.md](api/authentication.md) |
+| Authentication & token sessions | 7 | [authentication.md](api/authentication.md) |
 | Chat sessions | 7 | [chat-sessions.md](api/chat-sessions.md) |
 | AI chat | 7 | [chat.md](api/chat.md) |
 | Document Upload | 4 | [document-upload.md](api/document-upload.md) |
 | Documents | 6 | [documents.md](api/documents.md) |
 | Health | 5 | [health.md](api/health.md) |
-| **Total NestJS routes** | **35** | |
+| **Total NestJS routes** | **36** | |
 
 The direct MinIO signed `PUT` described in the documents guide is **not** a NestJS endpoint.
 
@@ -22,7 +22,7 @@ The direct MinIO signed `PUT` described in the documents guide is **not** a Nest
 - There is **no global `/api` or `/v1` prefix** in `src/main.ts`.
 - Protected endpoints require `Authorization: Bearer <access-jwt>`.
 - Access JWT lifetime: **15 minutes**. Refresh JWT lifetime: **7 days**.
-- Login sets `refreshToken` in an HttpOnly, `SameSite=Lax` cookie by default (`Secure` when `NODE_ENV=production`), and returns access token in JSON. `AUTH_COOKIE_SAME_SITE=none` supports HTTPS cross-site cookies.
+- Login and guest creation set `refreshToken` in an HttpOnly, `SameSite=Lax` cookie by default (`Secure` when `NODE_ENV=production`), and return access token in JSON. `AUTH_COOKIE_SAME_SITE=none` supports HTTPS cross-site cookies.
 - `POST /session/refresh` and `POST /auth/logout` use the refresh cookie. `POST /auth/logout-all` uses the Bearer token.
 - Cross-origin browser clients should send credentials for cookie-bearing requests. CORS allows configured `FRONTEND_ORIGINS` with credentials enabled; refresh/logout check `Origin` when present.
 - JWTs identify user (`sub`) and database session (`sid`). Refresh preserves the same cookie/session, logout revokes only that session. Login is limited to 30 requests/IP and 10 requests/username per 15 minutes (429 with `Retry-After`).
@@ -67,7 +67,7 @@ List endpoints accept `?page=1&limit=10`. Both are integers from 1 through 100; 
 
 ## Integration guides
 
-**Authentication:** register (optional) → login (JSON access token + refresh cookie) → protected requests → refresh as needed → logout or logout-all.
+**Authentication:** visitors can browse without credentials. On first send/upload, try refresh, then `POST /auth/guest` only if no valid session exists. A guest has a regular UUID, JWT and owned data. `POST /auth/register` upgrades a valid guest in place (same `User.id` and documents/chats), revokes guest sessions, then the client logs in normally. Existing registered users retain the register → login flow.
 
 **PDF upload:** `POST /document-upload/presigned-url` → direct MinIO `PUT` → `POST /document-upload/:id/process` → `GET /document-upload/:id/progress` → `POST /chat/send`.
 

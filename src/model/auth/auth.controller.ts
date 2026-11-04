@@ -25,7 +25,10 @@ import {
   LoginResDTO,
   LoginResultDTO,
 } from './auth.interface.js';
-import { LoginRateLimitException } from './login-rate-limit.service.js';
+import {
+  GuestRateLimitException,
+  LoginRateLimitException,
+} from './login-rate-limit.service.js';
 import {
   assertTrustedCookieOrigin,
   clearRefreshCookie,
@@ -46,8 +49,40 @@ export class AuthController {
   async register(
     @Body() registerDto: RegisterDTO,
     @Req() request: CookieRequest,
+    @Res({ passthrough: true }) response: Response,
   ): Promise<WebResponse> {
-    return await this.authService.register(registerDto, request);
+    assertTrustedCookieOrigin(request);
+    const result = await this.authService.register(registerDto, request);
+    // A guest upgrade revokes its previous session; let the existing FE login
+    // flow issue the newly registered account's credentials.
+    if (request.cookies?.refreshToken) clearRefreshCookie(response);
+    return result;
+  }
+
+  @Post('guest')
+  @HttpCode(HttpStatus.OK)
+  @Public()
+  async createGuest(
+    @Req() request: CookieRequest,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<WebResponse<LoginResDTO>> {
+    assertTrustedCookieOrigin(request);
+    let result: WebResponse<LoginResultDTO>;
+    try {
+      result = await this.authService.createGuest(request);
+    } catch (error) {
+      if (error instanceof GuestRateLimitException) {
+        response.setHeader('Retry-After', String(error.retryAfter));
+      }
+      throw error;
+    }
+    if (result.data?.refreshToken) {
+      setRefreshCookie(response, result.data.refreshToken);
+    }
+    return {
+      message: result.message,
+      data: { accessToken: result.data?.accessToken },
+    };
   }
 
   @Post('login')
