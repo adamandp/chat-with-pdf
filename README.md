@@ -27,6 +27,41 @@
 
 ## Project setup
 
+### Docker (local stack)
+
+```bash
+docker compose up -d --build --wait
+docker compose ps
+```
+
+The API listens on `http://127.0.0.1:3000` (`API_PORT` overrides the host port).
+Compose starts PostgreSQL, Redis, MinIO, etcd, and Milvus, applies Prisma
+migrations, then starts the API as a non-root user. Data persists in named
+volumes. Stop with `docker compose down`; add `-v` only to erase local data.
+
+The Compose credentials are for local development. Set `GEMINI_API_KEY`,
+`GROQ_API_KEY`, and optionally the model names in `.env` for PDF processing and
+AI chat. Startup and authentication do not require model credentials.
+The bundled MinIO image uses amd64 emulation on ARM hosts.
+
+Smoke test (creates a guest account):
+
+```bash
+curl -X POST http://127.0.0.1:3000/auth/guest
+```
+
+For an image that connects to your own services:
+
+```bash
+docker build --target runtime -t chat-pdf-api .
+docker run --rm --env-file .env -p 3000:3000 chat-pdf-api
+```
+
+Use container-reachable dependency addresses in `.env` (not `localhost`).
+Redis requires `REDIS_HOST`, `REDIS_PORT`, `REDIS_USERNAME`, and
+`REDIS_PASSWORD`. Apply migrations separately using the Dockerfile's `migrate`
+target. The build uses `--legacy-peer-deps` for the existing Nest peer mismatch.
+
 ```bash
 $ npm install
 ```
